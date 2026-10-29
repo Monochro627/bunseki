@@ -596,8 +596,6 @@ function setStaff(row, name, value) {
   const owners = parseOwners_(value);
   if (owners) Object.assign(res, owners);
   res.staffRaw = value;
-  // 議事録フォルダがあれば、新しい担当・送客元にも見られるように共有する
-  if (map.folder != null && r[map.folder]) shareNoteFolder_(r[map.folder], value);
   // すでに入っている予定（初回電話・面談・内覧の予定、追客アラート）のうち、まだ先のものを新しい担当のカレンダーに移す
   try { res.moved = moveEventsToOwner_(sheet, map, res.row, name, r, before, value); } catch (e) { res.warning = '予定を新しい担当に移せませんでした：' + e.message; }
   res.insta = instaKind_(map.introType == null ? '' : r[map.introType], value);
@@ -1172,7 +1170,7 @@ function knownNoteFiles_() {
   const sheet = getNotesSheet_();
   const last = sheet.getLastRow();
   const out = {};
-  if (last >= 2) sheet.getRange(2, 6, last - 1, 1).getValues().forEach((r) => { if (r[0]) out[r[0]] = true; });
+  if (last >= 2) sheet.getRange(2, 6, last - 1, 4).getValues().forEach((r) => { if (r[0]) out[r[0]] = true; if (r[3]) out[r[3]] = true; });
   return out;
 }
 
@@ -1208,9 +1206,10 @@ function saveMeetDoc_(no, name, doc) {
   const row = idx + 2;
   const curName = sheet.getRange(row, map.name + 1).getDisplayValue().trim() || name;
   const folderId = ensureCustomerFolder_(row, curName);
-  try { DriveApp.createShortcut(doc.id).moveTo(DriveApp.getFolderById(folderId)); } catch (e) { /* 共有されていなければリンクだけ残す */ }
-  const sum = summarizeDoc_(doc.id);
-  appendNote_(folderId, 'Meet議事録', doc.title, doc.url, doc.id, sum.text || (sum.error ? '（要点：' + sum.error + '）' : ''), 'Meet自動');
+  const put = putNoteFile_(doc.id, doc.title, folderId); // コピーを顧客フォルダに入れる（開けなければリンクだけ）
+  const id = put ? put.id : doc.id;
+  const sum = summarizeDoc_(id);
+  appendNote_(folderId, 'Meet議事録', doc.title, put ? put.url : doc.url, id, sum.text || (sum.error ? '（要点：' + sum.error + '）' : ''), 'Meet自動', doc.id);
   return true;
 }
 
@@ -1457,19 +1456,34 @@ function getNotes(row, name) {
 function addNoteLink(row, name, url, title, memo) {
   if (!/^https:\/\/(docs|drive)\.google\.com\//.test(url)) throw new Error('Google ドキュメント／ドライブのリンクを入力してください');
   const folderId = ensureCustomerFolder_(row, name);
-  let fileId = '';
+  let fileId = '', origId = '';
   const m = url.match(/\/d\/([\w-]{20,})/) || url.match(/[?&]id=([\w-]{20,})/);
   if (m) {
-    fileId = m[1];
-    try {
-      if (!title) title = DriveApp.getFileById(fileId).getName();
-      DriveApp.createShortcut(fileId).moveTo(DriveApp.getFolderById(folderId));
-    } catch (e) {
-      // 小嶋さんに共有されていないファイルはショートカットを作れない。リンクだけ残す。
-    }
+    origId = fileId = m[1];
+    const put = putNoteFile_(fileId, title, folderId);
+    if (put) { fileId = put.id; url = put.url; title = title || put.title; }
   }
-  appendNote_(folderId, 'リンク', title || 'Google メモ', url, fileId, memo);
+  appendNote_(folderId, 'リンク', title || 'Google メモ', url, fileId, memo, '', origId);
   return getNotes(row, name);
+}
+
+/**
+ * ファイルを顧客の議事録フォルダに入れる。Google ドキュメント（Gemini のメモ・文字起こし）はコピーを作る
+ * （コピーは小嶋さんのものになり、フォルダの共有で全員が見られる。元の文書の共有を頼まなくてよい）。
+ * ほかのファイルはショートカット。小嶋さんが開けないファイルは null（リンクだけ残す）
+ */
+function putNoteFile_(fileId, title, folderId) {
+  try {
+    const f = DriveApp.getFileById(fileId), folder = DriveApp.getFolderById(folderId);
+    if (f.getMimeType() === 'application/vnd.google-apps.document') {
+      const copy = f.makeCopy(title || f.getName(), folder);
+      return { id: copy.getId(), url: copy.getUrl(), title: f.getName() };
+    }
+    DriveApp.createShortcut(fileId).moveTo(folder);
+    return { id: fileId, url: f.getUrl(), title: f.getName() };
+  } catch (e) {
+    return null;
+  }
 }
 
 /** PDF 等のアップロード（base64） */
@@ -1500,7 +1514,6 @@ function ensureCustomerFolder_(row, name) {
     if (existing) return existing;
     const folder = getNotesRoot_().createFolder(name);
     cell.setValue(folder.getId());
-    shareNoteFolder_(folder.getId(), sheet.getRange(actualRow, map.staff + 1).getDisplayValue());
     clearCache_();
     return folder.getId();
   } finally {
@@ -1509,53 +1522,50 @@ function ensureCustomerFolder_(row, name) {
 }
 
 /**
- * 顧客の議事録フォルダを、その顧客の担当・送客元に「閲覧者」で共有する（担当者欄の「澤井颯晟（小嶋送客）」から読む）。
- * アプリの持ち主（info@）と、メールの分からない人は飛ばす。失敗しても議事録の保存は止めない。共有した人数を返す
+ * エディタから1回実行：「顧客議事録」フォルダごと、8名に「閲覧者」で共有する（中の顧客フォルダ・議事録も全部見られる）。
+ * アプリの持ち主（info@）は飛ばす。もう共有されている人には何もしない
  */
-function shareNoteFolder_(folderId, staffRaw) {
-  const o = parseOwners_(staffRaw);
-  if (!folderId || !o) return 0;
+function shareNotesRoot() {
   const self = Session.getEffectiveUser().getEmail().toLowerCase();
-  const emails = o.owners.map((n) => (STAFF.find((x) => x.name === n) || {}).email).filter((e) => e && e.toLowerCase() !== self);
-  if (!emails.length) return 0;
-  try {
-    const folder = DriveApp.getFolderById(folderId);
-    const has = folder.getViewers().concat(folder.getEditors()).map((u) => u.getEmail().toLowerCase());
-    const add = emails.filter((e) => has.indexOf(e.toLowerCase()) < 0);
-    if (add.length) folder.addViewers(add);
-    return add.length;
-  } catch (e) {
-    return 0;
-  }
+  const root = getNotesRoot_();
+  const has = root.getViewers().concat(root.getEditors()).map((u) => u.getEmail().toLowerCase());
+  const add = STAFF.map((x) => x.email).filter((e, i, a) => e && a.indexOf(e) === i && e.toLowerCase() !== self && has.indexOf(e.toLowerCase()) < 0);
+  if (add.length) root.addViewers(add);
+  Logger.log('「' + root.getName() + '」を共有しました：' + (add.join('、') || '（追加なし。もう全員に共有済み）'));
 }
 
 /**
- * エディタから実行：今ある議事録フォルダを、担当・送客元にまとめて共有する（1回でよい）。
- * 数が多くて途中で時間切れになったら、もう一度実行すると続きからやる
+ * エディタから1回実行：前から議事録に入っている Google ドキュメント（ほかの人の Gemini のメモなど）を、
+ * 顧客フォルダにコピーして置き換える（議事録の画面のリンクもコピーに変わる）。小嶋さんが開けない文書はそのまま
  */
-function shareAllNoteFolders() {
-  const props = PropertiesService.getScriptProperties();
-  const sheet = getSheet_();
-  const map = ensureAppColumns_(sheet);
-  const n = sheet.getLastRow() - 1;
-  const folders = sheet.getRange(2, map.folder + 1, n, 1).getDisplayValues();
-  const staff = sheet.getRange(2, map.staff + 1, n, 1).getDisplayValues();
-  const began = Date.now();
-  let i = Number(props.getProperty('SHARE_NOTES_FROM') || 0), shared = 0;
-  for (; i < n; i++) {
-    if (Date.now() - began > 4.5 * 60000) break;
-    if (folders[i][0]) shared += shareNoteFolder_(folders[i][0], staff[i][0]);
-  }
-  if (i < n) props.setProperty('SHARE_NOTES_FROM', String(i));
-  else props.deleteProperty('SHARE_NOTES_FROM');
-  Logger.log((i < n ? '時間切れのため ' + (i + 1) + '行目で止めました。もう一度実行すると続きからやります。' : 'すべての議事録フォルダを見ました。') + '共有を足した人数：' + shared);
+function copyExistingNoteDocs() {
+  const self = Session.getEffectiveUser().getEmail().toLowerCase();
+  const sheet = getNotesSheet_();
+  const last = sheet.getLastRow();
+  if (last < 2) return;
+  const rows = sheet.getRange(2, 1, last - 1, 9).getValues();
+  let copied = 0, skipped = 0;
+  rows.forEach((r, i) => {
+    const folderId = r[0], fileId = r[5];
+    if (!folderId || !fileId || r[8] || !/docs\.google\.com\/document/.test(r[4])) return;
+    try {
+      const f = DriveApp.getFileById(fileId);
+      if (f.getOwner() && f.getOwner().getEmail().toLowerCase() === self) return; // 小嶋さんの文書はもう全員に見える
+    } catch (e) { skipped++; return; }
+    const put = putNoteFile_(fileId, r[3], folderId);
+    if (!put) { skipped++; return; }
+    sheet.getRange(i + 2, 5, 1, 2).setValues([[put.url, put.id]]);
+    sheet.getRange(i + 2, 9).setValue(fileId);
+    copied++;
+  });
+  Logger.log('コピーに置き換えた議事録：' + copied + '件' + (skipped ? '（開けなかったもの ' + skipped + '件はそのまま）' : ''));
 }
 
-function appendNote_(folderId, type, title, url, fileId, memo, by) {
+function appendNote_(folderId, type, title, url, fileId, memo, by, origId) {
   getNotesSheet_().appendRow([
     folderId,
     Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm'),
-    type, title, url, fileId, memo || '', by || currentStaffName_() || currentEmail_(),
+    type, title, url, fileId, memo || '', by || currentStaffName_() || currentEmail_(), origId || '',
   ]);
   clearCache_();
 }
@@ -1580,9 +1590,10 @@ function getNotesSheet_() {
   let sheet = ss.getSheetByName(NOTES_SHEET_NAME);
   if (!sheet) {
     sheet = ss.insertSheet(NOTES_SHEET_NAME);
-    sheet.appendRow(['議事録フォルダ', '登録日時', '種類', 'タイトル', 'URL', 'ファイルID', 'メモ', '登録者']);
+    sheet.appendRow(['議事録フォルダ', '登録日時', '種類', 'タイトル', 'URL', 'ファイルID', 'メモ', '登録者', '元ファイルID']);
     sheet.setFrozenRows(1);
   }
+  if (!sheet.getRange(1, 9).getDisplayValue()) sheet.getRange(1, 9).setValue('元ファイルID'); // コピーで入れた議事録の元の文書（同じものを二重に取り込まないため）
   return sheet;
 }
 
