@@ -1135,13 +1135,15 @@ function meetBoxHtml(c) {
     '<a href="' + esc(c.meetLink) + '" target="_blank" rel="noopener">' + esc(c.meetLink) + '</a>' +
     '<div class="moves"><button class="chip" id="meetCopy">リンクをコピー</button><button class="chip" id="meetGuide">案内文をコピー</button></div></div>';
 }
+// お客様に送る Meet の案内文（全員この文面で統一）。日時は面談の予定から入れる（予定が無いときは日時の行を出さない）
 function meetGuideText(c) {
-  const [nm] = splitName(c.name);
   const d = planDate(c.planMeeting), endM = String(c.planMeeting || '').match(/〜(\d{2}:\d{2})/);
   const when = d ? (d.getMonth() + 1) + '月' + d.getDate() + '日（' + WEEK[d.getDay()] + '）' + c.planMeeting.slice(11, 16) + (endM ? '〜' + endM[1] : '') : '';
-  return nm + '様\n\nお世話になっております。Monochroの' + short(c.staff) + 'です。\nオンライン面談のご案内をお送りします。\n\n' +
-    (when ? '■日時：' + when + '\n' : '') + '■方法：Google Meet（オンライン）\n■参加URL：' + c.meetLink + '\n\n' +
-    'お時間になりましたら、上のURLからご参加ください。\nスマートフォンの場合は「Google Meet」アプリから参加いただけます。\n当日はどうぞよろしくお願いいたします。';
+  return 'オンライン面談のご案内をお送りさせて頂きます！\n\n当日はどうか宜しくお願い致します！\n\n' +
+    (when ? '■日時：' + when + '\n' : '') + '■方法：Google Meet（オンライン）\n■参加URL：' + c.meetLink + '\n\n\n' +
+    '⏬ご利用方法\nPCでも、携帯でもご利用可能です！\n操作方法が異なりまして、下記の通りになります◎\n\n' +
+    '💻PCでご利用の場合\n①Googleアカウントにログイン\n②上記リモートのURL(ビデオ通話のリンク)をクリック\n③お時間にご入室ください\n\n' +
+    '📱携帯でご利用の場合\n①「GoogleMeet」のアプリをダウンロード\n②アプリ内の表示のとおりご登録のお手続き\n③お時間にご入室ください';
 }
 async function copyText(text, done) {
   try { await navigator.clipboard.writeText(text); }
