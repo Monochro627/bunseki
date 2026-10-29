@@ -617,7 +617,7 @@ function createEvent_(email, title, start, end, desc, staff) {
       const cal = CalendarApp.getCalendarById(email);
       if (cal) {
         const ev = cal.createEvent(title, start, end, { description: desc });
-        paintEvent_(ev, staff);
+        if (email.indexOf('@group.calendar.google.com') < 0) paintEvent_(ev, staff); // 専用カレンダーは色を付けず、カレンダー自体の色で出す
         return { ref: cal.getId() + '|' + ev.getId(), where: email.indexOf('@group.calendar.google.com') > 0 ? '担当の専用カレンダー' : email + ' のカレンダーに直接' };
       }
     } catch (e) { /* 共有されていない・閲覧のみ → 招待にする */ }
