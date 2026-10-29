@@ -35,7 +35,7 @@ const SALE_APPS_LABELS = (n) => ['【分析】' + n + '※売買申込数', '【
 
 // 担当者と会社アカウントの対応。開いた人の担当分を最初に表示するのに使う。
 // color は売上管理表（5期目　年間売上表）の目標行の背景色。ゲージと担当者ボタンの色に使う
-// event はカレンダーの予定の色（Googleカレンダーは決まった11色だけ。担当カラーにいちばん近い色）。
+// event はカレンダーの予定の色（Googleカレンダーは決まった11色だけ。担当カラーにいちばん近い色）。calendar（専用カレンダー）に入れる予定には付けない
 //   ORANGE=ミカン YELLOW=バナナ PALE_RED=フラミンゴ MAUVE=ブドウ CYAN=ピーコック GRAY=グラファイト RED=トマト
 //   PALE_BLUE=ラベンダー PALE_GREEN=セージ BLUE=ブルーベリー GREEN=バジル
 //   空なら色を付けない（カレンダー全体の色で出る）。佐光さんのベージュは11色に無いので、カレンダー全体の色をベージュにして使う
@@ -898,8 +898,7 @@ function createCalendarEvent_(owner, title, start, end, note) {
     try {
       const gc = CalendarApp.getCalendarById(owner.calendar);
       if (gc) {
-        const ev = make(gc, { description: desc });
-        paintEvent_(ev, owner.name);
+        const ev = make(gc, { description: desc }); // 専用カレンダーは色を付けず、カレンダー自体の色で出す
         return { ref: gc.getId() + '|' + ev.getId(), where: owner.name + 'さんの専用カレンダー' };
       }
     } catch (e) { /* 書けなければ下のふつうの入れ方にする */ }
@@ -1060,7 +1059,7 @@ function createMeetEvent_(owner, title, start, end, note, no) {
   };
   if (/^\d+$/.test(color)) body.colorId = color;
   const tries = [];
-  if (owner.calendar) tries.push({ cal: owner.calendar, where: owner.name + 'さんの専用カレンダー' });
+  if (owner.calendar) tries.push({ cal: owner.calendar, where: owner.name + 'さんの専用カレンダー', plain: true }); // 専用カレンダーはカレンダー自体の色で出す
   if (owner.email && owner.email !== self) tries.push({ cal: owner.email, where: owner.name + 'さんのカレンダー' });
   tries.push(owner.email && owner.email !== self
     ? { cal: 'primary', where: owner.name + 'さんを招待', guest: owner.email }
@@ -1070,6 +1069,7 @@ function createMeetEvent_(owner, title, start, end, note, no) {
     const t = tries[i];
     try {
       const b = Object.assign({}, body, t.guest ? { attendees: [{ email: t.guest }] } : {});
+      if (t.plain) delete b.colorId;
       let ev = Calendar.Events.insert(b, t.cal, { conferenceDataVersion: 1, sendUpdates: 'none' });
       if (!ev.hangoutLink) { Utilities.sleep(1500); ev = Calendar.Events.get(t.cal, ev.id); } // Meet は少し遅れてできることがある
       const calId = t.cal === 'primary' ? CalendarApp.getDefaultCalendar().getId() : t.cal;
