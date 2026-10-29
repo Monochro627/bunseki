@@ -1482,6 +1482,7 @@ function putNoteFile_(fileId, title, folderId) {
     DriveApp.createShortcut(fileId).moveTo(folder);
     return { id: fileId, url: f.getUrl(), title: f.getName() };
   } catch (e) {
+    putNoteFile_.lastError = e.message; // copyExistingNoteDocs の実行ログに出す
     return null;
   }
 }
@@ -1539,7 +1540,6 @@ function shareNotesRoot() {
  * 顧客フォルダにコピーして置き換える（議事録の画面のリンクもコピーに変わる）。小嶋さんが開けない文書はそのまま
  */
 function copyExistingNoteDocs() {
-  const self = Session.getEffectiveUser().getEmail().toLowerCase();
   const sheet = getNotesSheet_();
   const last = sheet.getLastRow();
   if (last < 2) return;
@@ -1548,12 +1548,9 @@ function copyExistingNoteDocs() {
   rows.forEach((r, i) => {
     const folderId = r[0], fileId = r[5];
     if (!folderId || !fileId || r[8] || !/docs\.google\.com\/document/.test(r[4])) return;
-    try {
-      const f = DriveApp.getFileById(fileId);
-      if (f.getOwner() && f.getOwner().getEmail().toLowerCase() === self) return; // 小嶋さんの文書はもう全員に見える
-    } catch (e) { skipped++; return; }
+    // 小嶋さんの文書も、元は「Meet Recordings」などにあって共有フォルダの外なので、コピーを顧客フォルダに入れる
     const put = putNoteFile_(fileId, r[3], folderId);
-    if (!put) { skipped++; return; }
+    if (!put) { skipped++; Logger.log('開けなかった：' + (r[3] || r[4]) + '（' + putNoteFile_.lastError + '）'); return; }
     sheet.getRange(i + 2, 5, 1, 2).setValues([[put.url, put.id]]);
     sheet.getRange(i + 2, 9).setValue(fileId);
     copied++;
