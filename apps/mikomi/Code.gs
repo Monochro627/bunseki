@@ -596,6 +596,8 @@ function setStaff(row, name, value) {
   const owners = parseOwners_(value);
   if (owners) Object.assign(res, owners);
   res.staffRaw = value;
+  // 議事録フォルダがあれば、新しい担当・送客元にも見られるように共有する
+  if (map.folder != null && r[map.folder]) shareNoteFolder_(r[map.folder], value);
   // すでに入っている予定（初回電話・面談・内覧の予定、追客アラート）のうち、まだ先のものを新しい担当のカレンダーに移す
   try { res.moved = moveEventsToOwner_(sheet, map, res.row, name, r, before, value); } catch (e) { res.warning = '予定を新しい担当に移せませんでした：' + e.message; }
   res.insta = instaKind_(map.introType == null ? '' : r[map.introType], value);
@@ -1485,11 +1487,55 @@ function ensureCustomerFolder_(row, name) {
     if (existing) return existing;
     const folder = getNotesRoot_().createFolder(name);
     cell.setValue(folder.getId());
+    shareNoteFolder_(folder.getId(), sheet.getRange(actualRow, map.staff + 1).getDisplayValue());
     clearCache_();
     return folder.getId();
   } finally {
     lock.releaseLock();
   }
+}
+
+/**
+ * 顧客の議事録フォルダを、その顧客の担当・送客元に「閲覧者」で共有する（担当者欄の「澤井颯晟（小嶋送客）」から読む）。
+ * アプリの持ち主（info@）と、メールの分からない人は飛ばす。失敗しても議事録の保存は止めない。共有した人数を返す
+ */
+function shareNoteFolder_(folderId, staffRaw) {
+  const o = parseOwners_(staffRaw);
+  if (!folderId || !o) return 0;
+  const self = Session.getEffectiveUser().getEmail().toLowerCase();
+  const emails = o.owners.map((n) => (STAFF.find((x) => x.name === n) || {}).email).filter((e) => e && e.toLowerCase() !== self);
+  if (!emails.length) return 0;
+  try {
+    const folder = DriveApp.getFolderById(folderId);
+    const has = folder.getViewers().concat(folder.getEditors()).map((u) => u.getEmail().toLowerCase());
+    const add = emails.filter((e) => has.indexOf(e.toLowerCase()) < 0);
+    if (add.length) folder.addViewers(add);
+    return add.length;
+  } catch (e) {
+    return 0;
+  }
+}
+
+/**
+ * エディタから実行：今ある議事録フォルダを、担当・送客元にまとめて共有する（1回でよい）。
+ * 数が多くて途中で時間切れになったら、もう一度実行すると続きからやる
+ */
+function shareAllNoteFolders() {
+  const props = PropertiesService.getScriptProperties();
+  const sheet = getSheet_();
+  const map = ensureAppColumns_(sheet);
+  const n = sheet.getLastRow() - 1;
+  const folders = sheet.getRange(2, map.folder + 1, n, 1).getDisplayValues();
+  const staff = sheet.getRange(2, map.staff + 1, n, 1).getDisplayValues();
+  const began = Date.now();
+  let i = Number(props.getProperty('SHARE_NOTES_FROM') || 0), shared = 0;
+  for (; i < n; i++) {
+    if (Date.now() - began > 4.5 * 60000) break;
+    if (folders[i][0]) shared += shareNoteFolder_(folders[i][0], staff[i][0]);
+  }
+  if (i < n) props.setProperty('SHARE_NOTES_FROM', String(i));
+  else props.deleteProperty('SHARE_NOTES_FROM');
+  Logger.log((i < n ? '時間切れのため ' + (i + 1) + '行目で止めました。もう一度実行すると続きからやります。' : 'すべての議事録フォルダを見ました。') + '共有を足した人数：' + shared);
 }
 
 function appendNote_(folderId, type, title, url, fileId, memo, by) {
