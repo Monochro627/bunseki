@@ -1,0 +1,1539 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>見込みボード</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
+<style>
+  :root {
+    --bg: #f4f5f7; --panel: #ffffff; --line: #e2e4e9; --text: #1d2129; --sub: #6b7280;
+    --accent: #2f6fde; --accent-soft: #e8f0fd; --danger: #d64545; --danger-soft: #fdeaea;
+    --good: #1e8a4c; --good-soft: #e3f4ea; --warn: #b8640a; --warn-soft: #fdf0de;
+    --col: #eceef2; --shadow: 0 1px 2px rgba(0,0,0,.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #15171c; --panel: #1f2229; --line: #30343d; --text: #e8eaee; --sub: #9aa1ad;
+      --accent: #6b9cf0; --accent-soft: #233150; --danger: #f07070; --danger-soft: #3d2326;
+      --good: #5fcf8c; --good-soft: #1d3326; --warn: #f0b05a; --warn-soft: #3a2c17;
+      --col: #1a1d23; --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif; font-size: 14px; }
+  /* ページ全体を縦にスクロールできるようにする（上のダッシュボードが大きくても、ボードは画面の高さをほぼ全部使える） */
+  body { display: flex; flex-direction: column; overflow-x: hidden; overflow-y: auto; }
+  button, select, input, textarea { font: inherit; color: inherit; }
+
+  header { background: var(--panel); border-bottom: 1px solid var(--line); padding: 10px 12px 8px;
+    padding-top: max(10px, env(safe-area-inset-top)); flex: none; }
+  .top { display: flex; align-items: center; gap: 8px; }
+  .top h1 { font-size: 16px; margin: 0; flex: 1; white-space: nowrap; }
+  .sync { margin-left: auto; font-size: 11.5px; color: var(--sub); border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 3px 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .sync + .icon-btn { margin-left: 8px; }
+  @media (max-width: 480px) { .sync { font-size: 10.5px; max-width: 52vw; } }
+  .icon-btn { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+  .homelink { text-decoration: none; font-size: 15px; line-height: 1; padding: 6px 8px; }
+  .search { width: 100%; margin-top: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+  .chips { display: flex; gap: 6px; overflow-x: auto; margin-top: 8px; padding-bottom: 2px; scrollbar-width: none; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip { flex: none; border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 5px 12px; cursor: pointer; white-space: nowrap; }
+  .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .chip .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--c); margin-right: 5px; vertical-align: 0;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.25); }
+  .chip.on[style] { background: var(--c); border-color: rgba(0,0,0,.25); color: var(--ink); }
+  .chip.on .dot { display: none; }
+  /* 担当の欄の右の「売買」「インスタ」：全員分をカテゴリーとして見る */
+  /* 担当の変更（詳細画面） */
+  .staffpick .moves + .moves { margin-top: 6px; }
+  .staffpick .chip.rec { border-color: var(--accent); }
+  .staffpick .chip.rec::after { content: " おすすめ"; font-size: 10px; color: var(--accent); }
+  .staffpick .chip.on.rec::after { color: #fff; }
+  .staffpick .sublbl { font-size: 11px; color: var(--sub); margin: 6px 0 2px; }
+  .chips .sep { flex: none; width: 1px; background: var(--line); margin: 3px 2px; }
+  .chip.cat { font-weight: 700; }
+  .chip.cat.sale.on { background: #1e7b3c; border-color: #1e7b3c; color: #fff; }
+  .chip.cat.insta.on { background: linear-gradient(45deg, #f9a03f, #e1306c 55%, #833ab4); border-color: #c13584; color: #fff; }
+  .chip .cnt { font-weight: 400; opacity: .75; margin-left: 4px; font-size: 12px; }
+  /* インスタ顧客の紹介・リピート（自己集客）は参考：点線の枠で薄く */
+  .card.insta-sub { border-style: dashed; background: transparent; box-shadow: none; opacity: .85; }
+  .tag.insta { background: #fce4f0; color: #b0215c; }
+  .tag.insta-sub { background: transparent; color: #b0215c; border: 1px dashed #e7a3c2; }
+  @media (prefers-color-scheme: dark) { .tag.insta { background: #3d1a2b; color: #f59bc4; } .tag.insta-sub { color: #f59bc4; border-color: #7a3a58; } }
+  .col-head .sub-n { font-size: 11px; color: var(--sub); margin-left: 4px; }
+  .monthnav { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; color: var(--sub); }
+  .monthnav b { color: var(--text); }
+
+  main { flex: none; height: max(460px, calc(100dvh - 70px)); overflow-x: auto; overflow-y: hidden; display: flex; gap: 10px; padding: 10px 12px;
+    scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
+  .col { flex: none; width: min(84vw, 300px); background: var(--col); border-radius: 12px; display: flex; flex-direction: column;
+    scroll-snap-align: start; max-height: 100%; }
+  .col-head { padding: 10px 12px 6px; display: flex; align-items: baseline; gap: 6px; }
+  .col-head .t { font-weight: 700; }
+  .col-head .m { color: var(--sub); font-size: 12px; }
+  .col-head .n { margin-left: auto; color: var(--sub); font-size: 12px; }
+  .col-hint { padding: 0 12px 6px; color: var(--sub); font-size: 11px; }
+  .list { flex: 1; overflow-y: auto; padding: 4px 8px 12px; min-height: 80px; }
+  .col.unsorted { background: transparent; border: 2px dashed var(--line); }
+  /* PC：上に未振り分けの横帯、下にほかの列を画面幅いっぱい。0件の列は細くたたむ（スマホは今までどおり横スクロール） */
+  @media (min-width: 1100px) {
+    main#board { display: grid; grid-template-columns: var(--gcols); grid-template-rows: auto minmax(0, 1fr); overflow: hidden; scroll-snap-type: none; }
+    main#board .col { width: auto; min-width: 0; }
+    main#board .col.unsorted { grid-column: 1 / -1; max-height: 230px; }
+    main#board .col.unsorted .col-head { padding-bottom: 2px; }
+    main#board .col.unsorted .list { display: flex; gap: 8px; overflow-x: auto; overflow-y: hidden; align-items: flex-start; min-height: 92px; padding-bottom: 10px; }
+    main#board .col.unsorted .list .card { flex: none; width: 240px; margin-bottom: 0; }
+    main#board .col.folded .col-head { writing-mode: vertical-rl; padding: 10px 0; align-items: center; margin: 0 auto; }
+    main#board .col.folded .col-head .n { margin: 6px 0 0; }
+    main#board .col.folded .col-hint, main#board .col.folded .col-head .m { display: none; }
+    main#board .col.folded .list { padding: 4px 2px; }
+  }
+  .col.aerial .col-head .t::before { content: "● "; color: #c48a12; }
+  .col.other .col-head .t::before { content: "● "; color: var(--sub); }
+
+  .card { background: var(--panel); border-radius: 10px; padding: 9px 10px; margin-bottom: 8px; box-shadow: var(--shadow);
+    border: 1px solid var(--line); cursor: pointer; user-select: none; -webkit-user-select: none; }
+  .card .nm { font-weight: 700; }
+  .card .kana { color: var(--sub); font-size: 11px; font-weight: 400; margin-left: 4px; }
+  .card .row { display: flex; flex-wrap: wrap; gap: 4px 8px; margin-top: 5px; font-size: 12px; color: var(--sub); align-items: center; }
+  .ctag { background: rgba(255,255,255,.75); color: #5a4300; border: 1px solid #e2b007; border-radius: 6px; padding: 0 6px; font-size: 11px; font-weight: 700; }
+  .ctag.ready { background: #fff3c4; border-color: #c99700; }
+  .ctag.bad { background: #fde3e1; color: #b3261e; border-color: #e8a19b; }
+  .ctag.done { background: #2f5d50; color: #fff; border-color: #2f5d50; }
+  .ctag.cancel { background: #eee; color: #777; border-color: #ccc; }
+  .ctbox { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .ctbox b { display: block; font-size: 14px; }
+  .ctbox small { color: var(--sub); font-size: 11px; }
+  .ctbox a.btn { text-decoration: none; }
+  .ctcand { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+  .ctpick { text-align: left; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 8px 10px; cursor: pointer; display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; color: var(--text); font: inherit; }
+  .ctpick:hover { border-color: var(--accent); }
+  .ctpick.near { border-color: #e2b007; background: #fffbea; }
+  .ctpick em { font-style: normal; font-size: 11px; font-weight: 700; color: #8a6500; }
+  .ctpick small { flex-basis: 100%; color: var(--sub); font-size: 11px; }
+  .tag { background: var(--accent-soft); color: var(--accent); border-radius: 6px; padding: 1px 6px; font-size: 11px; }
+  .tag.over { background: var(--danger-soft); color: var(--danger); font-weight: 700; }
+  .tag.staff { background: var(--col); color: var(--sub); }
+  .tag.alert { background: #fff1d6; color: #9a5b00; font-weight: 700; }
+  .tag.alert-later { background: var(--col); color: var(--text); }
+  @media (prefers-color-scheme: dark) { .tag.alert { background: #3a2c12; color: #f3c66b; } }
+    .btn.lose { background: var(--danger); }
+  .closebar { display: flex; gap: 8px; }
+  .linkbtn { border: none; background: none; padding: 0; color: var(--accent); font-size: 12px; cursor: pointer; text-decoration: underline; }
+  .renamebox { margin-top: 10px; border: 1px solid var(--line); border-radius: 10px; padding: 10px; display: grid; gap: 8px; background: var(--bg); }
+  .renamebox label { display: grid; gap: 4px; font-size: 12px; color: var(--sub); }
+  .renamebox .rn-act { display: flex; gap: 6px; justify-content: flex-end; }
+  .hint { font-size: 11px; color: var(--sub); margin-top: 6px; line-height: 1.5; }
+  .stage:has(.plus) { grid-column: span 2; }
+  .stages { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; }
+  .stage { display: flex; gap: 4px; }
+  .stage button { flex: 1; border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 9px 4px; cursor: pointer;
+    font-weight: 700; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .stage button small { font-weight: 400; font-size: 10px; color: var(--sub); }
+  .stage.done button { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  .stage.done button small { color: var(--accent); }
+  .stage.planned button { border-style: dashed; border-color: var(--accent); color: var(--text); }
+  .stage.planned button small { color: var(--accent); font-weight: 700; }
+  .stage.late button { border-color: var(--danger); }
+  .stage.late button small { color: var(--danger); }
+  .planbox { margin-top: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 8px; background: var(--bg); }
+  .planbox .pb-title { font-weight: 700; }
+  .planbox .pb-row { display: flex; gap: 6px; }
+  .planbox .pb-row .field { flex: 1; min-width: 0; }
+  .planbox .pb-grid { display: grid; grid-template-columns: 4.5em 1fr; gap: 8px; align-items: center; }
+  .planbox .pb-grid > label { font-size: 12px; color: var(--sub); }
+  .planbox .pb-grid .field { font-size: 16px; padding: 10px; }
+  .planbox .tsel { flex: none; width: 6.5em; }
+  .calbtn { position: relative; flex: none; width: 46px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); font-size: 20px; }
+  .calbtn input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; }
+  .tag.plan { background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+  .stage button.plus { flex: none; width: 44px; font-size: 11px; background: var(--accent); color: #fff; }
+  .closebar .btn { flex: 1; padding: 10px 0; }
+  .chip.lostchip { color: var(--danger); border-color: var(--danger-soft); }
+  .chip.lostchip.on { background: var(--sub); border-color: var(--sub); color: #fff; pointer-events: none; }
+  .chip.revive { color: var(--good); border-color: var(--good); font-weight: 700; }
+  .losebox { margin-top: 8px; border: 1px solid var(--danger-soft); border-radius: 10px; padding: 10px; background: var(--bg); }
+  .tag.send { background: #efe7fb; color: #6b3fb8; }
+  @media (prefers-color-scheme: dark) { .tag.send { background: #2e2540; color: #c3a6f2; } }
+  .sortable-ghost { opacity: .35; }
+  .card.selected { outline: 3px solid var(--accent); outline-offset: -1px; background: var(--accent-soft); }
+  #selectMode.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .selbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    background: var(--panel); border-top: 1px solid var(--line); box-shadow: 0 -4px 14px rgba(0,0,0,.12);
+    padding: 10px max(12px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
+  .selbar #selCount { font-weight: 700; }
+  .selbar .field { flex: 1; min-width: 8em; width: auto; }
+  /* 成約：金色に輝くカード */
+  .card.won { position: relative; overflow: hidden; border: 1.5px solid #e2b007; color: #4a3500;
+    background: linear-gradient(135deg, #fff6d1 0%, #ffe48a 45%, #fff3c4 60%, #ffd75a 100%);
+    box-shadow: 0 0 0 1px rgba(226,176,7,.35), 0 4px 14px rgba(226,176,7,.45); }
+  .card.won::after { content: ""; position: absolute; top: 0; left: -60%; width: 40%; height: 100%; pointer-events: none;
+    background: linear-gradient(105deg, transparent, rgba(255,255,255,.75), transparent); animation: shine 3.2s ease-in-out infinite; }
+  .card.won .kana, .card.won .row { color: #7a5a00; }
+  .card.won .tag { background: rgba(255,255,255,.6); color: #7a5a00; }
+  /* 契約進捗まで完了：金色から、担当の色の金ピカに（--sc＝担当の色、--ink＝その上の文字色） */
+  .card.won.ctdone { border-color: color-mix(in srgb, var(--sc) 70%, #000); color: var(--ink);
+    background: linear-gradient(135deg, color-mix(in srgb, var(--sc) 35%, #fff) 0%, var(--sc) 38%, color-mix(in srgb, var(--sc) 55%, #fff) 55%, var(--sc) 72%, color-mix(in srgb, var(--sc) 75%, #000) 100%);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--sc) 45%, transparent), 0 4px 16px color-mix(in srgb, var(--sc) 60%, transparent); }
+  .card.won.ctdone .kana, .card.won.ctdone .row { color: var(--ink); opacity: .85; }
+  .card.won.ctdone .ribbon { background: var(--ink); color: var(--sc); }
+  .card.won.ctdone .tag { background: rgba(255,255,255,.55); color: #1d2129; }
+  .card.won.ctdone .xbtn { color: var(--ink); }
+  .card.just { animation: pop .9s ease-out 2; }
+  @keyframes shine { 0% { left: -60%; } 55%, 100% { left: 130%; } }
+  @keyframes pop { 0% { transform: scale(1); } 40% { transform: scale(1.06); box-shadow: 0 0 28px rgba(255,200,0,.9); } 100% { transform: scale(1); } }
+  @media (prefers-reduced-motion: reduce) { .card.won::after, .card.just { animation: none; } }
+  /* 失客：グレーアウト */
+  .card.lost { filter: grayscale(1); opacity: .5; background: var(--col); }
+  .card .ribbon { float: right; font-size: 10px; font-weight: 800; padding: 1px 7px; border-radius: 999px; margin-left: 6px; }
+  .card.won .ribbon { background: #c99700; color: #fff; }
+  .card.lost .ribbon { background: var(--sub); color: #fff; }
+  /* 成約が出た月の列は金色に */
+  .col.golden { background: linear-gradient(180deg, #ffe9a3 0%, #fff4cf 140px, var(--col) 420px); box-shadow: inset 0 0 0 2px #f0c43a; }
+  .col.golden .col-head .t { color: #8a6100; }
+  .col-result { padding: 0 12px 6px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .won-badge { background: linear-gradient(90deg, #f4c430, #ffdf6e); color: #5a3f00; font-weight: 800; font-size: 12px; padding: 2px 10px; border-radius: 999px;
+    box-shadow: 0 1px 6px rgba(240,180,0,.5); }
+  .lost-badge { background: var(--line); color: var(--sub); font-size: 12px; padding: 2px 10px; border-radius: 999px; }
+  @media (prefers-color-scheme: dark) {
+    .col.golden { background: linear-gradient(180deg, #4a3a0c 0%, #2c2512 160px, var(--col) 420px); }
+    .col.golden .col-head .t { color: #f3c66b; }
+  }
+  .sortable-chosen { transform: scale(1.02); box-shadow: 0 6px 18px rgba(0,0,0,.18); }
+  /* ×（ボードから外す） */
+  .card { position: relative; }
+  .card .xbtn { position: absolute; top: 4px; right: 4px; width: 26px; height: 26px; border: none; border-radius: 50%; background: transparent;
+    color: var(--sub); font-size: 15px; line-height: 26px; text-align: center; cursor: pointer; padding: 0; opacity: .55; }
+  .card .xbtn:hover { opacity: 1; background: var(--col); color: var(--danger); }
+  .card:has(.xbtn) .nm { padding-right: 22px; }
+  .card.won .xbtn { color: #7a5a00; z-index: 1; }
+  .hidlist .hrow { display: flex; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .hidlist .hrow div { flex: 1; min-width: 0; }
+  .hidlist .hrow small { display: block; color: var(--sub); font-size: 11px; }
+
+  .sheet-bg { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: none; z-index: 10; }
+  .sheet { position: fixed; left: 0; right: 0; bottom: 0; max-height: 90vh; overflow-y: auto; background: var(--panel);
+    border-radius: 16px 16px 0 0; padding: 16px 16px max(20px, env(safe-area-inset-bottom)); z-index: 11; display: none; }
+  @media (min-width: 720px) { .sheet { left: auto; top: 0; width: 440px; max-height: none; border-radius: 0; } }
+  .sheet h2 { margin: 0 0 2px; font-size: 18px; }
+  .sheet .sub { color: var(--sub); font-size: 12px; margin-bottom: 12px; }
+  .sec { margin-top: 16px; }
+  .sec > .lbl { font-size: 12px; color: var(--sub); margin-bottom: 6px; font-weight: 700; }
+  dl.info { display: grid; grid-template-columns: 7em 1fr; gap: 4px 8px; margin: 0; font-size: 13px; }
+  dl.info dt { color: var(--sub); }
+  dl.info dd { margin: 0; word-break: break-all; }
+  .field { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+  textarea.field { min-height: 80px; resize: vertical; }
+  .btn { border: none; background: var(--accent); color: #fff; border-radius: 8px; padding: 8px 14px; cursor: pointer; font-weight: 700; }
+  .btn.ghost { background: var(--col); color: var(--text); font-weight: 400; }
+  .btn:disabled { opacity: .5; }
+  .moves { display: flex; flex-wrap: wrap; gap: 6px; }
+  .moves .chip.on { pointer-events: none; }
+  .note { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; font-size: 13px; }
+  .note .meta { color: var(--sub); font-size: 11px; }
+  .note a { color: var(--accent); }
+  .addbar { display: flex; gap: 6px; flex-wrap: wrap; }
+  .addform { margin-top: 8px; display: none; gap: 6px; flex-direction: column; }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #222; color: #fff; padding: 8px 14px;
+    border-radius: 8px; font-size: 13px; z-index: 20; display: none; max-width: 90vw; }
+  .loading { margin: auto; color: var(--sub); }
+
+  .views { display: flex; background: var(--col); border-radius: 10px; padding: 3px; margin-top: 8px; }
+  .views button { flex: 1; border: none; background: transparent; border-radius: 8px; padding: 6px 0; cursor: pointer; color: var(--sub); white-space: nowrap; }
+  @media (max-width: 480px) { .views button { font-size: 11.5px; } .views button[data-view="analysis"] { flex: 1.4; } .views .long { display: none; } .views button[data-view="manual"] { flex: .5; } }
+  .views button.on { background: var(--panel); color: var(--text); font-weight: 700; box-shadow: var(--shadow); }
+  .views .cnt { font-size: 11px; color: var(--sub); font-weight: 400; margin-left: 2px; }
+  .salebar { display: flex; align-items: center; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .tag.buy { background: #e6f4ea; color: #1e7b3c; }
+  .tag.sell { background: #fdf0e1; color: #a35a00; }
+  @media (prefers-color-scheme: dark) { .tag.buy { background: #1f3527; color: #7fd49b; } .tag.sell { background: #3a2a17; color: #f0b56a; } }
+  .empty { color: var(--sub); text-align: center; padding: 40px 0; }
+
+  /* ---------- 売上ダッシュボード ---------- */
+  .dash { display: grid; gap: 8px; margin-top: 8px; }
+  @media (min-width: 900px) { .dash { grid-template-columns: 1fr 1fr; } }
+  .dash .strip { min-width: 0; }
+  .dcard { --track: color-mix(in srgb, var(--text) 12%, transparent);
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px 12px;
+    box-shadow: 0 1px 2px rgba(15,23,42,.05), 0 6px 18px rgba(15,23,42,.05); position: relative; overflow: hidden; }
+  .dcard::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 4px; background: var(--c); }
+  .dhead { display: flex; align-items: flex-start; gap: 8px; }
+  .dtitle { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .dtitle b { font-size: 13px; letter-spacing: .04em; }
+  .dtitle span { font-size: 11px; color: var(--sub); font-variant-numeric: tabular-nums; }
+  .dmain { display: flex; align-items: flex-end; gap: 12px; margin-top: 6px; }
+  .drate { font-size: 34px; font-weight: 800; line-height: 1; letter-spacing: -.02em; font-variant-numeric: tabular-nums; color: var(--text); }
+  .drate i { font-style: normal; font-size: 16px; margin-left: 2px; color: var(--sub); }
+  .dsum { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+  .damount { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .damount b { font-size: 17px; }
+  .damount b i { font-style: normal; font-size: 12px; }
+  .damount span { font-size: 12px; color: var(--sub); margin-left: 4px; }
+  .dpace { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+  .dpace span { font-weight: 400; margin-left: 6px; opacity: .85; }
+  .dpace.ahead { background: var(--good-soft); color: var(--good); }
+  .dpace.behind { background: var(--warn-soft); color: var(--warn); }
+  .dgauge { position: relative; height: 14px; border-radius: 999px; background: var(--track); margin-top: 10px; }
+  .dfill { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: var(--c);
+    box-shadow: inset 0 0 0 1.5px var(--c-deep); transition: width .5s ease; }
+  .dpacemark { position: absolute; top: -4px; bottom: -4px; width: 3px; margin-left: -1.5px; border-radius: 2px; background: var(--text); }
+  .dkpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 6px; margin-top: 10px; }
+  .dkpi { background: var(--bg); border-radius: 10px; padding: 7px 9px; display: flex; flex-direction: column; min-width: 0; }
+  .dkpi span { font-size: 10.5px; color: var(--sub); letter-spacing: .03em; }
+  .dkpi b { font-size: 16px; line-height: 1.3; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .dkpi b i { font-style: normal; font-size: 11px; margin-left: 1px; }
+  .dkpi small { font-size: 10px; color: var(--sub); }
+  .dkpi.em { background: var(--accent-soft); }
+  .dkpi.em b { color: var(--accent); font-size: 20px; }
+  .dbtn { border: 1px solid var(--line); background: var(--bg); color: var(--text); border-radius: 999px; padding: 4px 12px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+  .dbtn:hover { border-color: var(--accent); color: var(--accent); }
+  .dcard .sub { color: var(--sub); font-size: 12px; }
+  .dfold { border: none; background: var(--bg); color: var(--sub); width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 13px; flex: none; }
+  .dfold:hover { color: var(--accent); }
+  /* たたんだとき：見出し・達成率・ゲージだけ */
+  .dash.folded .dkpis, .dash.folded .dsum .dpace, .dash.folded .dtitle span, .dash.folded .tedit { display: none; }
+  .dash.folded .dcard { padding: 8px 12px 10px; }
+  .dash.folded .dmain { margin-top: 0; align-items: center; }
+  .dash.folded .drate { font-size: 22px; }
+  .dash.folded .dgauge { height: 10px; margin-top: 6px; }
+  .dash.folded .dhead { align-items: center; }
+  @media (prefers-reduced-motion: reduce) { .dfill { transition: none; } }
+  .tedit { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+  .tedit .field { width: 5.5em; padding: 6px 8px; font-size: 16px; }
+  .tedit em { font-style: normal; font-size: 12px; color: var(--sub); }
+  .tedit .btn { padding: 6px 10px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="top">
+    <a class="icon-btn homelink" id="homeLink" title="ホーム（アプリの入口）" aria-label="ホーム" target="_top">🏠</a>
+    <h1>見込みボード</h1>
+    <span class="sync" id="sync" hidden>前回の数字を表示中・最新を確認しています…</span>
+    <button class="icon-btn" id="reload" title="再読み込み">↻</button>
+  </div>
+  <input class="search" id="q" type="search" placeholder="顧客名・物件名・メモで検索">
+  <div class="views" id="views">
+    <button data-view="board" class="on">見込みボード</button>
+    <button data-view="analysis">成績ダッシュボード</button>
+    <button data-view="contract" id="contractTab" hidden>契約進捗 ↗</button>
+    <button data-view="manual" id="manualTab" title="マニュアル" hidden>📖<span class="long"> マニュアル</span></button>
+  </div>
+  <div class="chips" id="staffChips"></div>
+  <div class="dash" id="dash">
+    <div class="strip" id="salesStrip" hidden></div>
+    <div class="strip" id="monthStrip" hidden></div>
+  </div>
+  <div class="salebar" id="saleBar" hidden>
+    <button class="chip on" data-kind="">すべて</button>
+    <button class="chip" data-kind="購入">購入</button>
+    <button class="chip" data-kind="売却">売却</button>
+  </div>
+  <div class="monthnav" id="monthNav">
+    <button class="icon-btn" id="prev">◀</button>
+    <span id="range"></span>
+    <span style="display:flex;gap:6px"><button class="icon-btn" id="hiddenOpen" hidden></button><button class="icon-btn" id="selectMode">複数選択</button></span>
+    <button class="icon-btn" id="next">▶</button>
+  </div>
+</header>
+<main id="board"><div class="loading">読み込み中…</div></main>
+
+<div class="sheet-bg" id="sheetBg"></div>
+<div class="sheet" id="sheet"></div>
+<div class="selbar" id="selBar" hidden>
+  <span id="selCount">0件選択中</span>
+  <select class="field" id="selDest" aria-label="移動先"></select>
+  <button class="btn" id="selMove">移動</button>
+  <button class="btn ghost" id="selCancel">やめる</button>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const APP_URL = <?!= JSON.stringify(appUrl) ?>; // このアプリの URL（分析ボードへの切り替えに使う）
+document.getElementById('homeLink').href = APP_URL + '?page=home'; // 左上の🏠：ホーム画面（アプリの入口）
+const INITIAL_VIEW = <?!= JSON.stringify(initialView) ?>; // URL の ?view=（分析ボードから戻るとき）
+const CONTRACT_URL = <?!= JSON.stringify(contractUrl) ?>; // 契約進捗アプリの URL（空ならつながない）
+if (CONTRACT_URL) document.getElementById('contractTab').hidden = false; // 上のタブ「契約進捗」は一覧を別のタブで開くだけ
+const MANUAL_URL = <?!= JSON.stringify(manualUrl) ?>; // マニュアルのアプリ（上のタブで別のタブに開くだけ）
+if (MANUAL_URL) document.getElementById('manualTab').hidden = false;
+const state = { dashFolded: recall('dashFolded') === '1', selecting: false, customers: [], staff: [], staffColors: {}, stages: [], statusButtons: [], dealTypes: [], planMinutes: {}, me: '', who: '', offset: 0, q: '', view: 'board', saleKind: '', sales: null, salesError: '' };
+const now = new Date();
+const THIS_MONTH = ym(now.getFullYear(), now.getMonth() + 1);
+const AERIAL = '空中戦', OTHER = 'その他';
+
+function ym(y, m) { const d = new Date(y, m - 1, 1); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }
+function addMonths(s, n) { const [y, m] = s.split('-').map(Number); return ym(y, m + n); }
+function monthLabel(s) { return Number(s.split('-')[1]) + '月'; }
+function relLabel(s) {
+  const [y1, m1] = THIS_MONTH.split('-').map(Number), [y2, m2] = s.split('-').map(Number);
+  const d = (y2 - y1) * 12 + (m2 - m1);
+  if (d < 0) return -d + 'か月前';
+  return ['今月', '来月', '再来月', '3か月後'][d] || (d + 'か月後');
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function splitName(n) { const m = n.match(/^(.*?)[（(](.*)[)）]\s*$/); return m ? [m[1], m[2]] : [n, '']; }
+
+function api(fn, ...args) {
+  return new Promise((resolve, reject) => {
+    google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)[fn](...args);
+  });
+}
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.style.display = 'block';
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => { t.style.display = 'none'; }, 2600);
+}
+function remember(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+function recall(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+
+// ---------- 読み込み ----------
+// 前回読んだ数字はこの端末に覚えておき、開いた瞬間に表示する（裏で最新を読んで差し替える）
+const CACHE_BOARD = 'mikomi.cache.v1.board', CACHE_SALES = 'mikomi.cache.v1.sales', CACHE_CONTRACT = 'mikomi.cache.v1.contract';
+function syncNote(on) { document.getElementById('sync').hidden = !on; }
+async function load() {
+  if (!state.loaded) { // 初めの1回だけ、前回の数字をすぐ出す
+    let old = null;
+    try { old = JSON.parse(recall(CACHE_BOARD) || 'null'); } catch (e) {}
+    if (old) { applyBoard(old); syncNote(true); }
+    try { const s = JSON.parse(recall(CACHE_SALES) || 'null'); if (s && !state.sales) state.sales = s; } catch (e) {}
+  }
+  try {
+    const data = await api('getBoard', !!load.fresh); load.fresh = false;
+    remember(CACHE_BOARD, JSON.stringify(data));
+    applyBoard(data);
+    if (!loadContracts.started) loadContracts(); // 契約の進み具合はボードを出したあとに別で読む
+    prefetchAnalysis();
+  } catch (e) {
+    if (!state.loaded) document.getElementById('board').innerHTML = '<div class="loading">読み込みに失敗しました：' + esc(e.message) + '</div>';
+    else toast('最新を読み込めませんでした：' + e.message);
+  }
+  syncNote(false);
+}
+// 成績ダッシュボードを使っている人は、ボードを出したあと手が空いたときに、前回見ていたページのデータを裏で読んでおく
+// （「成績ダッシュボード」を押したときにすぐ出る。キーは Analysis.html と同じ nenji.cache.v1.*。10分に1回まで）
+const ANALYSIS_NEEDS = { nenji: ['getNenjiData'], person: ['getScoreData', 'getNenjiData', 'getPromoState'], funnel: ['getScoreData', 'getFunnel'], promo: ['getScoreData', 'getPromoState'] };
+function prefetchAnalysis() {
+  if (prefetchAnalysis.done) return;
+  prefetchAnalysis.done = true;
+  const page = recall('nenji.lastPage');
+  const last = Number(recall('mikomi.prefetchAt')) || 0;
+  if (!page || Date.now() - last < 600000) return;
+  setTimeout(() => {
+    const run = () => {
+      remember('mikomi.prefetchAt', String(Date.now()));
+      (ANALYSIS_NEEDS[page] || ['getScoreData']).forEach((fn) => {
+        api(fn).then((d) => remember('nenji.cache.v1.' + fn, JSON.stringify(d))).catch(() => {});
+      });
+    };
+    if (window.requestIdleCallback) requestIdleCallback(run, { timeout: 3000 }); else run();
+  }, 3000);
+}
+function applyBoard(data) {
+  {
+    state.loaded = true;
+    state.customers = data.customers; state.staff = data.staff; state.staffColors = data.staffColors || {}; state.stages = data.stages || []; state.statusButtons = data.statusButtons || [];
+    state.dealTypes = data.dealTypes || []; state.staffOptions = data.staffOptions || []; state.planMinutes = data.planMinutes || {}; state.me = data.me;
+    if (!state.who) {
+      state.who = recall('who') || data.me || 'all';
+      // 前の「売買案件」タブ（?view=sale や前回の表示）は、担当の欄の「売買」で開く
+      if (INITIAL_VIEW === 'sale' || recall('view') === 'sale') { state.who = SALE; remember('who', SALE); remember('view', 'board'); }
+    }
+    if (state.selecting || document.getElementById('sheet').style.display === 'block') return; // 操作中は描き直さない（次の読み込みで反映）
+    renderChips(); render();
+  }
+}
+
+// ---------- 契約進捗（成約したお客様の契約の進み具合。契約進捗アプリのデータ） ----------
+async function loadContracts() {
+  if (!CONTRACT_URL) return;
+  loadContracts.started = true;
+  if (!state.contracts) { try { state.contracts = JSON.parse(recall(CACHE_CONTRACT) || 'null'); } catch (e) {} }
+  try {
+    state.contracts = await api('getContractProgress');
+    remember(CACHE_CONTRACT, JSON.stringify(state.contracts));
+  } catch (e) { return; }
+  if (current) fillContract(current);
+  if (!state.selecting && document.getElementById('sheet').style.display !== 'block') render();
+}
+// 契約の状態：{ cls, text }
+function contractState(c) {
+  const p = c.contractId && state.contracts && state.contracts.deals[c.contractId];
+  if (!p) return c.contractId ? { cls: '', text: '契約' } : null;
+  if (p.status === '完了') return { cls: 'done', text: '契約完了' };
+  if (p.status === 'キャンセル') return { cls: 'cancel', text: '契約キャンセル' };
+  if (p.status === '対象外') return null;
+  if (p.total && p.done === p.total) return { cls: 'ready', text: '契約 完了ボタン待ち' };
+  if (p.idle >= 48) return { cls: 'bad', text: '契約 ' + p.done + '/' + p.total + '・' + Math.floor(p.idle / 24) + '日動きなし' };
+  return { cls: '', text: '契約 ' + p.done + '/' + p.total + (p.phase ? '・' + p.phase : '') };
+}
+function contractTag(c) {
+  if (c.result !== 'won' || !CONTRACT_URL) return '';
+  const s = contractState(c);
+  return s ? '<span class="ctag ' + s.cls + '">📝 ' + esc(s.text) + '</span>' : '';
+}
+const contractLink = (id) => CONTRACT_URL + '?id=' + encodeURIComponent(id);
+// 詳細の「契約進捗」欄。つながっていなければ探し、見つからなければ「作る」ボタン
+async function fillContract(c) {
+  const el = document.getElementById('ctSec');
+  if (!el || current !== c) return;
+  if (c.contractId) {
+    const s = contractState(c);
+    el.innerHTML = '<div class="ctbox"><div><b>' + esc(s ? s.text : '契約') + '</b><small>案件ID ' + esc(c.contractId) + '</small></div>' +
+      '<a class="btn" href="' + esc(contractLink(c.contractId)) + '" target="_blank" rel="noopener">契約進捗を開く ↗</a></div>';
+    return;
+  }
+  if (!c.ctTried) {
+    c.ctTried = true;
+    el.innerHTML = '<div class="hint">契約進捗の案件を探しています…</div>';
+    try { const r = await api('linkContract', c.row, c.name); if (r && r.id) { c.contractId = r.id; c.row = r.row; } } catch (e) {}
+    return fillContract(c);
+  }
+  el.innerHTML = '<div class="ctbox"><div><b>契約進捗はまだありません</b><small>同じ担当・同じ名前の案件が見つかりませんでした</small></div>' +
+    '<button class="btn" id="ctCreate">契約進捗を作る</button></div><div id="ctCand" class="ctcand"><div class="hint">名前が違うだけの案件がないか探しています…</div></div>';
+  // 名前の書き方が違う（例：神戸葵／神戸葵伊）ときのために、同じ担当のまだつながっていない案件を出して選べるようにする
+  let list = [];
+  try { list = await api('contractCandidates', c.row, c.name) || []; } catch (e) {}
+  const box = document.getElementById('ctCand');
+  if (!box || current !== c) return;
+  box.innerHTML = list.length ? '<div class="hint">名前の書き方が違うだけなら、下から選んでつなげます（同じ担当で、まだどの顧客ともつながっていない案件）</div>' +
+    list.map((x) => '<button class="ctpick' + (x.near >= 50 ? ' near' : '') + '" data-ctlink="' + esc(x.id) + '"><b>' + esc(x.name) + '</b>' +
+      (x.near >= 50 ? '<em>名前が近い</em>' : '') + '<small>' + esc(x.staff) + (x.tab ? '・' + esc(x.tab.replace('月次売上', '').replace(/※.*$/, '')) : '・見込みボードから') + (x.created ? '・' + esc(x.created) + '作成' : '') + '</small></button>').join('')
+    : '<div class="hint">同じ担当で、まだつながっていない契約進捗の案件はありません</div>';
+}
+async function linkContractCase(id, btn) {
+  const c = current;
+  if (!confirm('この契約進捗の案件とつなぎますか？')) return;
+  btn.disabled = true;
+  try {
+    const r = await api('linkContractTo', c.row, c.name, id);
+    c.contractId = r.id; c.row = r.row; fillContract(c); render(); toast('契約進捗とつなぎました'); loadContracts();
+  } catch (e) { btn.disabled = false; toast('つなげませんでした：' + e.message); }
+}
+async function createContractCase() {
+  const c = current, b = document.getElementById('ctCreate');
+  b.disabled = true; b.textContent = '作成中…';
+  try {
+    const r = await api('createContract', c.row, c.name);
+    c.contractId = r.id; c.row = r.row; fillContract(c); render(); toast('契約進捗を作りました'); loadContracts();
+  } catch (e) { b.disabled = false; b.textContent = '契約進捗を作る'; toast('作れませんでした：' + e.message); }
+}
+
+// ---------- 表示 ----------
+function columns() {
+  const start = addMonths(THIS_MONTH, state.offset);
+  const months = [0, 1, 2, 3].map((i) => addMonths(start, i));
+  return [
+    { key: '', title: '未振り分け', cls: 'unsorted', hint: 'ここから各列へドラッグして振り分け' },
+    { key: AERIAL, title: '空中戦リスト', cls: 'aerial', hint: '時期未定の見込み（毎月見直し）' },
+    ...months.map((m) => ({ key: m, title: relLabel(m), meta: m.replace('-', '年').replace(/^(\d+)年0?/, '$1年') + '月', month: true })),
+    { key: OTHER, title: 'その他', cls: 'other', hint: '保留・テナント・売買紹介など' },
+  ];
+}
+
+function columnOf(c, cols) {
+  const f = c.forecast;
+  if (c.result) return cols.some((x) => x.key === c.boardMonth) ? c.boardMonth : null;
+  if (!f) return '';
+  if (f === AERIAL || f === OTHER) return f;
+  const first = cols.find((x) => x.month).key;
+  if (state.offset === 0 && f < first) return first; // 期限切れは今月に残す
+  return cols.some((x) => x.key === f) ? f : null;   // 表示範囲外
+}
+
+// 担当の欄の右の「売買」「インスタ」（state.who に入れる。担当者名と混ざらないように # を付ける）
+const SALE = '#sale', INSTA = '#insta';
+function isCategory() { return state.who === SALE || state.who === INSTA; }
+function inView(c) {
+  if (state.who === SALE) return isSale(c) && (!state.saleKind || c.dealType.includes(state.saleKind));
+  if (state.who === INSTA) return !!c.insta;
+  if (!(c.owners || [c.staff]).length) return false; // 8名以外が担当のインスタ顧客は「インスタ」の欄だけ
+  return state.who === 'all' || (c.owners || [c.staff]).includes(state.who);
+}
+function visible(c) {
+  if (!inView(c)) return false;
+  if (!state.q) return true;
+  const q = state.q.toLowerCase();
+  return [c.name, c.property, c.memo, c.status, c.moveTime].some((v) => String(v || '').toLowerCase().includes(q));
+}
+
+function renderChips() {
+  const el = document.getElementById('staffChips');
+  const list = [['all', '全員'], ...state.staff.map((s) => [s, s.replace(/^(..).*$/, '$1')])];
+  el.innerHTML = list.map(([k, label]) =>
+    '<button class="chip' + (state.who === k ? ' on' : '') + '" data-who="' + esc(k) + '"' +
+      (staffColor(k) ? ' style="--c:' + staffColor(k) + ';--ink:' + inkOn(staffColor(k)) + '"' : '') + '>' +
+      (staffColor(k) ? '<i class="dot"></i>' : '') + esc(label) + (k === state.me ? '（自分）' : '') + '</button>'
+  ).join('') + '<i class="sep"></i>' +
+    // 見込み中の件数（インスタは会社集客のインスタだけ数える）
+    [[SALE, 'sale', '🏠 売買', state.customers.filter((c) => isSale(c) && !c.closed && !c.hidden).length],
+     [INSTA, 'insta', '📷 インスタ', state.customers.filter((c) => c.insta === 'main' && !c.closed && !c.hidden).length]].map(([k, cls, label, n]) =>
+      '<button class="chip cat ' + cls + (state.who === k ? ' on' : '') + '" data-who="' + k + '">' + label + (n ? '<span class="cnt">' + n + '</span>' : '') + '</button>').join('');
+  // 選んだボタンが見えるように横にずらす（スマホで右の方の「売買」「インスタ」を選んでいるとき）。選び直したときだけ
+  if (renderChips.who !== state.who) {
+    renderChips.who = state.who;
+    const on = el.querySelector('.chip.on');
+    if (on) el.scrollLeft = Math.max(0, on.offsetLeft - el.offsetLeft - el.clientWidth / 2 + on.offsetWidth / 2);
+  }
+}
+
+function isSale(c) { return String(c.dealType || '').includes('売買'); }
+
+function forecastLabel(f) {
+  if (!f) return '未振り分け';
+  if (!/^\d{4}-\d{2}$/.test(f)) return f;
+  return (f < THIS_MONTH ? '期限切れ ' : relLabel(f) + ' ') + monthLabel(f);
+}
+
+function render() {
+  renderChips(); // 売買・インスタの件数を新しくする
+  document.getElementById('saleBar').hidden = state.who !== SALE;
+  document.querySelectorAll('#views button').forEach((b) => b.classList.toggle('on', b.dataset.view === state.view));
+  renderSalesStrip();
+  return renderBoard();
+}
+
+// ---------- 売上 ----------
+function man(n) { return (Math.round(n / 1000) / 10).toLocaleString('ja-JP', { maximumFractionDigits: 1 }) + '万'; }
+
+async function loadSales() {
+  loadSales.busy = true;
+  try { state.sales = await api('getSales'); state.salesError = ''; remember(CACHE_SALES, JSON.stringify(state.sales)); }
+  catch (e) { state.salesError = e.message; }
+  loadSales.busy = false;
+  renderSalesStrip();
+}
+
+// 達成率は四捨五入せず、小数点2桁で切り捨て（例：0.503719… → 50.37）
+function pct2(rate) { return (Math.floor(rate * 10000 + 1e-9) / 100).toFixed(2); }
+
+function dayIndex(iso) { const [y, m, d] = iso.split('-').map(Number); return Date.UTC(y, m - 1, d) / 864e5; }
+
+// ---------- 売上ダッシュボード（担当者を選んだときだけ、ヘッダーに出す） ----------
+// 見込みボードでは「年間売上目標」、売買案件では「年間売買目標（件数）」、どちらでも下に「今月の売上目標」
+function dashCtx() {
+  const S = state.sales, s = S && S.staff.find((x) => x.name === state.who);
+  if (!s) return null;
+  const [py, pm] = S.periodStart.split('-').map(Number), [ty, tm] = THIS_MONTH.split('-').map(Number);
+  const cur = Math.max(0, Math.min(11, (ty - py) * 12 + (tm - pm)));
+  const totalDays = dayIndex(S.periodEnd) - dayIndex(S.periodStart) + 1;
+  const total = (arr) => (arr || []).reduce((a, b) => a + (b || 0), 0);
+  const apps = total(s.appMonths), saleApps = total(s.saleAppMonths), saleSales = s.saleTotal || 0;
+  const rentApps = apps - saleApps;
+  return {
+    S, s, cur, tm, monthsLeft: 12 - cur,
+    elapsed: Math.max(0, Math.min(1, (dayIndex(TODAY) - dayIndex(S.periodStart) + 1) / totalDays)),
+    apps, saleApps, saleSales,
+    unit: rentApps > 0 ? (s.actualTotal - saleSales) / rentApps : 0, // 賃貸の平均単価
+    saleUnit: saleApps ? saleSales / saleApps : 0,
+  };
+}
+
+const yen = (n) => (n ? '¥' + Math.round(n).toLocaleString('ja-JP') : '—');
+
+// ゲージ1枚分のカード。kpis: [{label, value, sub, em}]（em は強調するタイル）
+function dashCard(o) {
+  const tone = o.rate === null ? 'none' : o.rate >= o.pace ? 'ahead' : 'behind';
+  return '<div class="dcard">' +
+    '<div class="dhead"><div class="dtitle"><b>' + esc(o.title) + '</b><span>' + esc(o.period) + '</span></div>' +
+      (o.action || '') + '<button class="dfold" data-fold aria-label="' + (state.dashFolded ? 'ひらく' : 'たたむ') + '">' + (state.dashFolded ? '▾' : '▴') + '</button></div>' +
+    '<div class="dmain"><div class="drate ' + tone + '">' + (o.rate === null ? '—' : pct2(o.rate) + '<i>%</i>') + '</div>' +
+      '<div class="dsum"><div class="damount"><b>' + o.done + '</b><span>/ ' + o.goal + '</span></div>' +
+        (o.rate === null ? '' : '<div class="dpace ' + tone + '">' + (tone === 'ahead' ? 'ペース以上' : 'ペース遅れ') + '<span>' + esc(o.paceLabel) + ' ' + (o.pace * 100).toFixed(1) + '%</span></div>') +
+      '</div></div>' +
+    '<div class="dgauge" role="img" aria-label="' + esc(o.title + ' ' + (o.rate === null ? '目標未設定' : pct2(o.rate) + '%')) + '">' +
+      '<div class="dfill" style="width:' + (o.rate === null ? 0 : Math.min(100, o.rate * 100)) + '%"></div>' +
+      (o.rate === null ? '' : '<div class="dpacemark" style="left:' + o.pace * 100 + '%"></div>') + '</div>' +
+    '<div class="dkpis">' + o.kpis.map((k) =>
+      '<div class="dkpi' + (k.em ? ' em' : '') + '"><span>' + esc(k.label) + '</span><b>' + k.value + '</b>' + (k.sub ? '<small>' + k.sub + '</small>' : '') + '</div>').join('') + '</div>' +
+  '</div>';
+}
+
+function renderSalesStrip() {
+  const el = document.getElementById('salesStrip');
+  document.getElementById('dash').classList.toggle('folded', state.dashFolded);
+  renderMonthStrip();
+  if (state.who === 'all') { el.hidden = true; return; }
+  el.hidden = false;
+  if (state.who === INSTA) { renderInstaStrip(el); return; }
+  if (state.salesError) { el.innerHTML = '<div class="dcard"><span class="sub">売上管理表を読めませんでした</span></div>'; return; }
+  if (!loadSales.started) { loadSales.started = true; if (!loadSales.busy) loadSales(); } // 前回の売上を出していても、最新を1回読む
+  if (!state.sales) { el.innerHTML = '<div class="dcard"><span class="sub">売上を読み込み中…</span></div>'; if (!loadSales.busy) loadSales(); return; }
+  if (state.who === SALE) { renderSaleTotalStrip(el); return; }
+  const x = dashCtx();
+  if (!x) { el.hidden = true; return; }
+  const { S, s } = x;
+  setStaffTone(el, s.name);
+  const period = S.periodStart.replace(/-/g, '/') + '〜' + S.periodEnd.replace(/-/g, '/');
+  const has = s.targetTotal > 0;
+  const remain = Math.max(0, s.targetTotal - s.actualTotal);
+  const need = has && x.unit ? Math.ceil(remain / x.unit) : null;
+  el.innerHTML = dashCard({
+    title: '年間売上目標', period: period, paceLabel: '経過率', pace: x.elapsed,
+    rate: has ? s.actualTotal / s.targetTotal : null, done: man(s.actualTotal), goal: has ? man(s.targetTotal) : '目標未設定',
+    kpis: [
+      { label: '目標まであと', value: has ? man(remain) : '—' },
+      { label: '必要な申込', value: need === null ? '—' : need + '<i>件</i>', sub: need ? '月 約' + Math.ceil(need / x.monthsLeft) + '件' : '', em: true },
+      { label: '申込件数', value: x.apps + '<i>件</i>', sub: 'うち売買 ' + x.saleApps + '件' },
+      { label: '賃貸単価', value: yen(x.unit) },
+      { label: '売買単価', value: yen(x.saleUnit) },
+    ],
+  });
+}
+
+// 今月：手入力した今月の目標（売上）に対する今月の売上。ペースは今月の日数の経過率
+// 必要な申込＝（目標−今月の売上）÷ 賃貸の平均単価（年間の数字から）
+function renderMonthStrip() {
+  const el = document.getElementById('monthStrip');
+  const x = state.who !== 'all' && dashCtx();
+  if (!x) { el.hidden = true; return; }
+  el.hidden = false;
+  const { S, s, cur, tm } = x;
+  setStaffTone(el, s.name);
+  const sales = s.actualMonths[cur] || 0, apps = (s.appMonths || [])[cur] || 0;
+  const target = (S.monthTargets || {})[s.name] || 0;
+  const [ty] = THIS_MONTH.split('-').map(Number);
+  const daysIn = new Date(ty, tm, 0).getDate();
+  const remain = Math.max(0, target - sales);
+  const need = target && x.unit ? Math.ceil(remain / x.unit) : null;
+  const editing = el.dataset.editing === '1';
+  const action = editing
+    ? '<div class="tedit"><input class="field" id="mtInput" inputmode="decimal" value="' + (target ? target / 10000 : '') + '" placeholder="200" aria-label="今月の目標（万円）"><em>万円</em>' +
+      '<button class="btn" id="mtSave">保存</button><button class="btn ghost" id="mtCancel">やめる</button></div>'
+    : '<button class="dbtn" id="mtEdit">' + (target ? '目標を変更' : '目標を入れる') + '</button>';
+  el.innerHTML = dashCard({
+    title: '今月の売上目標', period: ty + '年' + tm + '月（' + now.getDate() + '/' + daysIn + '日）', paceLabel: '今月の経過', pace: now.getDate() / daysIn,
+    rate: target ? sales / target : null, done: man(sales), goal: target ? man(target) : '目標未設定', action: action,
+    kpis: [
+      { label: '目標まであと', value: target ? man(remain) : '—' },
+      { label: '必要な申込', value: need === null ? '—' : need + '<i>件</i>', sub: x.unit ? '賃貸単価 ' + yen(x.unit) : '', em: true },
+      { label: '今月の申込', value: apps + '<i>件</i>' },
+    ],
+  });
+  if (editing) { const i = document.getElementById('mtInput'); i.focus(); i.select(); }
+}
+
+// 担当者の色をゲージに。明るい色（ベージュ・黄・ピンク）は溝と見分けにくいので、縁と文字用に濃い色も作る
+function setStaffTone(el, name) {
+  const c = staffColor(name) || '#2f6fde';
+  el.style.setProperty('--c', c);
+  el.style.setProperty('--c-deep', edgeColor(c));
+}
+// ゲージや棒の縁の色。明るい色は濃く、黒のようにほぼ黒い色は暗い背景でも見えるようにグレーの縁
+function edgeColor(c) {
+  const v = parseInt(String(c).slice(1), 16);
+  if (((v >> 16) * 299 + ((v >> 8) & 255) * 587 + (v & 255) * 114) / 1000 < 40) return '#8a93a3';
+  return shade(c, inkOn(c) === '#fff' ? 0 : 0.45);
+}
+function shade(hex, amt) {
+  const v = parseInt(hex.slice(1), 16), f = (x) => Math.round(x * (1 - amt));
+  return 'rgb(' + f(v >> 16) + ',' + f((v >> 8) & 255) + ',' + f(v & 255) + ')';
+}
+
+async function saveMonthTarget() {
+  const el = document.getElementById('monthStrip');
+  const v = Number(String(document.getElementById('mtInput').value).replace(/[,，万円\s]/g, '').replace(/[０-９．]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)));
+  if (!(v >= 0)) return toast('目標は「200」のように万円で入れてください');
+  try {
+    const res = await api('setMonthTarget', state.who, Math.round(v * 10000));
+    state.sales.monthTargets = Object.assign({}, state.sales.monthTargets, { [state.who]: res.amount });
+    el.dataset.editing = ''; renderMonthStrip(); toast('今月の目標を ' + man(res.amount) + ' にしました');
+  } catch (e) { toast('保存できませんでした：' + e.message); }
+}
+// ダッシュボードをたたむ／ひらく（スマホでボードを広く使うため。開いた状態は端末ごとに覚える）
+document.getElementById('dash').addEventListener('click', (e) => {
+  if (!e.target.closest('[data-fold]')) return;
+  state.dashFolded = !state.dashFolded; remember('dashFolded', state.dashFolded ? '1' : '');
+  renderSalesStrip();
+});
+document.getElementById('monthStrip').addEventListener('click', (e) => {
+  const el = document.getElementById('monthStrip');
+  if (e.target.id === 'mtEdit') { el.dataset.editing = '1'; renderMonthStrip(); }
+  if (e.target.id === 'mtCancel') { el.dataset.editing = ''; renderMonthStrip(); }
+  if (e.target.id === 'mtSave') saveMonthTarget();
+});
+document.getElementById('monthStrip').addEventListener('keydown', (e) => { if (e.target.id === 'mtInput' && e.key === 'Enter') saveMonthTarget(); });
+
+// 「売買」の欄：会社の売買目標（売上管理表の「売買総合計【◯件】」）に対する、会社の売買申込件数（「★売買総申込件数」の行）
+function renderSaleTotalStrip(el) {
+  const S = state.sales;
+  const total = (arr) => (arr || []).reduce((a, b) => a + (b || 0), 0);
+  // 会社の行（★売買総申込件数・全体売買売上）があればそれを使う。無ければ担当者の合計
+  const done = S.companySaleAppMonths ? total(S.companySaleAppMonths) : S.staff.reduce((a, s) => a + total(s.saleAppMonths), 0);
+  const sales = S.companySaleMonths ? total(S.companySaleMonths) : S.staff.reduce((a, s) => a + (s.saleTotal || 0), 0);
+  const t = S.saleTargetTotal || 0;
+  const elapsed = Math.max(0, Math.min(1, (dayIndex(TODAY) - dayIndex(S.periodStart) + 1) / (dayIndex(S.periodEnd) - dayIndex(S.periodStart) + 1)));
+  el.style.setProperty('--c', '#1e7b3c'); el.style.setProperty('--c-deep', '#155c2c');
+  el.innerHTML = dashCard({
+    title: '年間売買目標（全員）', period: S.periodStart.replace(/-/g, '/') + '〜' + S.periodEnd.replace(/-/g, '/') + '（件数）', paceLabel: '経過率', pace: elapsed,
+    rate: t ? done / t : null, done: done + '<i>件</i>', goal: t ? t + '件' : '目標未設定',
+    kpis: [
+      { label: '目標まであと', value: t ? Math.max(0, t - done) + '<i>件</i>' : '—', em: true },
+      { label: '売買単価', value: yen(done ? sales / done : 0) },
+      { label: '売買売上', value: man(sales) },
+      { label: '見込み中', value: state.customers.filter((c) => isSale(c) && !c.closed && !c.hidden).length + '<i>件</i>', sub: 'ボードの売買案件' },
+    ],
+  });
+}
+
+// 「インスタ」の欄：件数だけ（目標のゲージは無し）。KPI は会社集客のインスタだけで数え、インスタ顧客の紹介・リピートは参考
+function renderInstaStrip(el) {
+  const list = state.customers.filter((c) => c.insta && !c.hidden);
+  const main = list.filter((c) => c.insta === 'main'), sub = list.filter((c) => c.insta === 'sub');
+  const wonThis = main.filter((c) => c.result === 'won' && c.boardMonth === THIS_MONTH).length;
+  el.style.setProperty('--c', '#c13584'); el.style.setProperty('--c-deep', '#8a2560');
+  el.innerHTML = '<div class="dcard"><div class="dhead"><div class="dtitle"><b>インスタ（会社集客）</b><span>全員分・件数は会社集客のインスタだけ</span></div>' +
+    '<button class="dfold" data-fold aria-label="' + (state.dashFolded ? 'ひらく' : 'たたむ') + '">' + (state.dashFolded ? '▾' : '▴') + '</button></div>' +
+    '<div class="dkpis">' +
+      '<div class="dkpi em"><span>見込み中</span><b>' + main.filter((c) => !c.closed).length + '<i>件</i></b></div>' +
+      '<div class="dkpi"><span>今月の成約</span><b>' + wonThis + '<i>件</i></b></div>' +
+      '<div class="dkpi"><span>参考：インスタ顧客の紹介・リピート</span><b>' + sub.filter((c) => !c.closed).length + '<i>件</i></b><small>点線のカード。件数には入れない</small></div>' +
+    '</div></div>';
+}
+
+function renderBoard() {
+  const cols = columns();
+  const mcols = cols.filter((x) => x.month), lastKey = mcols[mcols.length - 1].key;
+  const board = document.getElementById('board');
+  const buckets = {}; cols.forEach((c) => { buckets[c.key] = []; });
+  let beyond = 0;
+  // 成約・失客は月の列があるものだけ（boardMonth）、それ以外は閉じていない見込み客
+  state.customers.filter((c) => !c.hidden && (c.result ? !!c.boardMonth : !c.closed) && visible(c)).forEach((c) => {
+    const k = columnOf(c, cols);
+    if (k === null) { if (!c.result && c.forecast > lastKey) beyond++; return; }
+    buckets[k].push(c);
+  });
+  const hid = state.customers.filter((c) => c.hidden && visible(c)).length;
+  const hb = document.getElementById('hiddenOpen');
+  hb.hidden = !hid; hb.textContent = '外した人 ' + hid;
+  document.getElementById('range').innerHTML = '<b>' + monthLabel(mcols[0].key) + '〜' + monthLabel(lastKey) + '</b>' +
+    (beyond ? '　（さらに先 ' + beyond + '件）' : '');
+
+  // PC（横幅が広いとき）：未振り分けは上の横帯、ほかの列は画面幅いっぱいに。0件の列は細くたたむ
+  board.style.setProperty('--gcols', cols.filter((x) => x.key !== '').map((x) => (buckets[x.key].length ? 'minmax(0,1fr)' : '46px')).join(' '));
+  board.innerHTML = cols.map((col) => {
+    // 並び順：成約 → 見込み中 → 失客
+    const rank = (c) => (c.result === 'won' ? 0 : c.result === 'lost' ? 2 : 1);
+    // 同じ並びの中では、ドラッグで決めた並び順 → まだ並べていない人は最終更新の新しい順
+    const ord = (c) => (c.order == null ? Infinity : c.order);
+    const items = buckets[col.key].sort((a, b) => rank(a) - rank(b) || ord(a) - ord(b) || (b.updated || '').localeCompare(a.updated || '') || a.row - b.row);
+    // インスタの欄では、インスタ顧客の紹介・リピート（参考）は成約・件数に数えない
+    const main = state.who === INSTA ? items.filter((c) => c.insta === 'main') : items;
+    const won = main.filter((c) => c.result === 'won').length, lost = main.filter((c) => c.result === 'lost').length;
+    const subN = (xs) => (state.who === INSTA ? xs.filter((c) => c.insta === 'sub' && !c.result).length : 0);
+    return '<section class="col ' + (col.cls || '') + (won ? ' golden' : '') + (!items.length && col.key !== '' ? ' folded' : '') + '">' +
+      '<div class="col-head"><span class="t">' + esc(col.title) + '</span>' + (col.meta ? '<span class="m">' + esc(col.meta) + '</span>' : '') +
+      '<span class="n">' + (items.length - won - lost - subN(items)) + '件' + (subN(items) ? '<span class="sub-n">＋参考' + subN(items) + '</span>' : '') + '</span></div>' +
+      (won || lost ? '<div class="col-result">' + (won ? '<span class="won-badge">🏆 成約 ' + won + '件</span>' : '') + (lost ? '<span class="lost-badge">失客 ' + lost + '件</span>' : '') + '</div>' : '') +
+      (col.hint ? '<div class="col-hint">' + esc(col.hint) + '</div>' : '') +
+      '<div class="list" data-key="' + esc(col.key) + '">' + items.map(cardHtml).join('') + '</div></section>';
+  }).join('');
+
+  board.querySelectorAll('.list').forEach((list) => {
+    Sortable.create(list, {
+      group: 'board', sort: true, animation: 150, filter: '.won, .lost, .xbtn', preventOnFilter: false,
+      multiDrag: state.selecting, selectedClass: 'selected', avoidImplicitDeselect: true,
+      onSelect: updateSelBar, onDeselect: updateSelBar,
+      delay: 220, delayOnTouchOnly: true, touchStartThreshold: 6,
+      scroll: true, scrollSensitivity: 60, bubbleScroll: true,
+      onEnd: (ev) => {
+        const moved = ev.items && ev.items.length ? ev.items : [ev.item];
+        if (ev.from !== ev.to) onDropMany(moved.map((el) => Number(el.dataset.row)), ev.to.dataset.key, ev.to);
+        else if (moved.length > 1 || ev.oldIndex !== ev.newIndex) saveListOrder(ev.to);
+      },
+    });
+  });
+}
+
+// 担当者の色（売上管理表と同じ）と、その上に載せる文字色（明るい色なら黒、暗い色なら白）
+function staffColor(n) { return state.staffColors[n] || ''; }
+function inkOn(hex) {
+  const v = parseInt(String(hex).slice(1), 16);
+  return ((v >> 16) * 299 + ((v >> 8) & 255) * 587 + (v & 255) * 114) / 1000 > 150 ? '#1d2129' : '#fff';
+}
+
+// シートのB列の「完了」は、アプリでは「成約」と表示する
+function statusLabel(st) { return String(st || '').replace(/^完了/, '成約'); }
+
+function short(n) { return String(n || '').replace(/^(..).*$/, '$1'); }
+
+// 担当者タグ：全員表示では「澤井←諸本」、送客元で見ているときは「送客→澤井」、主担当で見ているときは「諸本から送客」
+function ownerTag(c) {
+  if (state.who === 'all' || isCategory()) return c.staff ? '<span class="tag staff">' + esc(short(c.staff)) + (c.referrer ? '←' + esc(short(c.referrer)) : '') + '</span>' : '';
+  if (c.referrer && state.who === c.referrer) return '<span class="tag send">送客→' + esc(short(c.staff)) + '</span>';
+  if (c.referrer) return '<span class="tag staff">' + esc(short(c.referrer)) + 'から送客</span>';
+  return '';
+}
+
+// 「売買」の欄では購入／売却、「インスタ」の欄ではインスタ顧客の紹介・リピートの印
+function catTag(c) {
+  if (state.who === SALE) return c.dealType.includes('売却') ? '<span class="tag sell">売却</span>' : '<span class="tag buy">購入</span>';
+  if (state.who === INSTA && c.insta === 'sub') return '<span class="tag insta-sub">インスタ顧客の' + (String(c.introType).includes('リピート') ? 'リピート' : '紹介') + '</span>';
+  return '';
+}
+
+const TODAY = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+
+function alertTag(c) {
+  if (!c.alertDate) return '';
+  const md = Number(c.alertDate.slice(5, 7)) + '/' + Number(c.alertDate.slice(8));
+  if (c.alertDate < TODAY) return '<span class="tag over">🔔' + md + ' 未対応</span>';
+  if (c.alertDate === TODAY) return '<span class="tag alert">🔔今日</span>';
+  return '<span class="tag alert-later">🔔' + md + '</span>';
+}
+
+function cardHtml(c) {
+  const [nm, kana] = splitName(c.name);
+  const overdue = !c.result && c.forecast && /^\d{4}-\d{2}$/.test(c.forecast) && c.forecast < THIS_MONTH;
+  // 契約進捗まで完了した成約は、担当の色の金ピカにする
+  const ctDone = c.result === 'won' && (contractState(c) || {}).cls === 'done', sc = ctDone ? staffColor(c.staff) || '#e2b007' : '';
+  return '<div class="card' + (c.result ? ' ' + c.result : '') + (ctDone ? ' ctdone' : '') + (state.who === INSTA && c.insta === 'sub' ? ' insta-sub' : '') + '" data-row="' + c.row + '"' + (ctDone ? ' style="--sc:' + sc + ';--ink:' + inkOn(sc) + '"' : '') + '>' +
+    (state.selecting ? '' : '<button class="xbtn" data-hide="' + c.row + '" title="ボードから外す" aria-label="ボードから外す">×</button>') +
+    '<div class="nm">' + (c.result === 'won' ? '🏆 ' : '') + esc(nm) + (kana ? '<span class="kana">' + esc(kana) + '</span>' : '') +
+      (c.result === 'won' ? '<span class="ribbon">' + (ctDone ? '契約完了' : '成約') + '</span>' : c.result === 'lost' ? '<span class="ribbon">失客</span>' : '') + '</div>' +
+    '<div class="row">' +
+      (overdue ? '<span class="tag over">期限切れ ' + monthLabel(c.forecast) + '</span>' : '') +
+      (c.status && c.result !== 'won' ? '<span class="tag">' + esc(statusLabel(c.status)) + '</span>' : '') +
+      catTag(c) + ownerTag(c) + contractTag(c) +
+      (c.moveTime ? '<span>引越 ' + esc(c.moveTime) + '</span>' : '') +
+      planTag(c) +
+      alertTag(c) +
+      (c.notes ? '<span>📎' + c.notes + '</span>' : '') +
+    '</div></div>';
+}
+
+// ---------- 移動 ----------
+// 列の中の見込み客（成約・失客は除く）を、画面の上から順に並べた一覧。並び順もその場で付け直す
+function listItems(list) {
+  const items = [...list.querySelectorAll('.card:not(.won):not(.lost)')]
+    .map((el) => state.customers.find((x) => x.row === Number(el.dataset.row))).filter(Boolean);
+  items.forEach((c, i) => { c.order = i + 1; });
+  return items;
+}
+async function saveOrderOf(items) {
+  try { await api('saveOrder', items.map((c) => ({ row: c.row, name: c.name }))); }
+  catch (e) { toast('並び順を保存できませんでした：' + e.message); }
+}
+function saveListOrder(list) { return saveOrderOf(listItems(list)); }
+
+// 複数まとめて移動（ドラッグでも、選択バーの「移動」でも）
+async function onDropMany(rows, key, list) {
+  if (rows.length === 1) return onDrop(rows[0], key, list);
+  const cs = rows.map((r) => state.customers.find((x) => x.row === r)).filter(Boolean);
+  const before = cs.map((c) => c.forecast);
+  const items = list ? listItems(list) : null;
+  cs.forEach((c) => { c.forecast = key; });
+  endSelecting(); render();
+  try {
+    const res = await api('moveCustomers', cs.map((c) => ({ row: c.row, name: c.name })), key); // 1回の保存でまとめて
+    res.forEach((r, i) => { cs[i].row = r.row; cs[i].updated = r.updated; });
+    if (items) saveOrderOf(items);
+    toast(cs.length + '件を移動しました');
+  } catch (e) {
+    cs.forEach((c, i) => { c.forecast = before[i]; }); render();
+    toast('一部を保存できませんでした：' + e.message + '（↻ で最新を確認してください）');
+  }
+}
+
+// ---------- ×でボードから外す・戻す ----------
+async function hideCase(row) {
+  const c = state.customers.find((x) => x.row === row);
+  if (!c) return;
+  const [nm] = splitName(c.name);
+  if (!confirm(nm + ' さんをボードから外しますか？\n（シートの見込み月が「非表示」になるだけで、ほかは変わりません。上の「外した人」から戻せます）')) return;
+  const before = c.forecast;
+  c.hidden = true; render();
+  try {
+    const res = await api('hideCustomer', c.row, c.name);
+    c.row = res.row; c.updated = res.updated; c.forecast = res.forecast;
+    toast(nm + ' さんを外しました');
+  } catch (e) {
+    c.hidden = false; c.forecast = before; render();
+    toast('外せませんでした：' + e.message);
+  }
+}
+function openHiddenList() {
+  const list = state.customers.filter((c) => c.hidden && visible(c));
+  current = null;
+  document.getElementById('sheet').innerHTML =
+    '<div style="display:flex;align-items:start;gap:8px"><div style="flex:1"><h2>ボードから外した人</h2><div class="sub">「戻す」を押すと、外す前の列に戻ります</div></div>' +
+    '<button class="icon-btn" id="close">✕</button></div>' +
+    '<div class="hidlist">' + (list.length ? list.map((c) => {
+      const [nm, kana] = splitName(c.name);
+      return '<div class="hrow"><div><b>' + esc(nm) + '</b>' + (kana ? ' <span class="kana" style="color:var(--sub);font-size:11px">' + esc(kana) + '</span>' : '') +
+        '<small>' + esc(statusLabel(c.status) || '—') + (c.staff ? '・' + esc(c.staff) : '') + '</small></div>' +
+        '<button class="btn ghost" data-restore="' + c.row + '">戻す</button></div>';
+    }).join('') : '<div class="empty">ありません</div>') + '</div>';
+  document.getElementById('sheetBg').style.display = 'block';
+  document.getElementById('sheet').style.display = 'block';
+  document.getElementById('sheet').scrollTop = 0;
+}
+async function restoreCase(row, btn) {
+  const c = state.customers.find((x) => x.row === row);
+  if (!c) return;
+  btn.disabled = true; btn.textContent = '戻し中…';
+  try {
+    await api('restoreCustomer', c.row, c.name);
+    toast(splitName(c.name)[0] + ' さんを戻しました');
+    closeSheet(); load(); // 成約・失客の月はシートから計算し直す
+  } catch (e) { btn.disabled = false; btn.textContent = '戻す'; toast('戻せませんでした：' + e.message); }
+}
+
+// ---------- 複数選択 ----------
+function startSelecting() {
+  state.selecting = true;
+  document.getElementById('selDest').innerHTML = columns().map((col) =>
+    '<option value="' + esc(col.key) + '">' + esc(col.title + (col.meta ? '（' + col.meta.replace(/^\d+年/, '') + '）' : '')) + '</option>').join('');
+  document.getElementById('selBar').hidden = false;
+  document.getElementById('selectMode').classList.add('on');
+  render(); updateSelBar();
+  toast('カードをタップして選び、まとめてドラッグするか、下の「移動」を押してください');
+}
+function endSelecting() {
+  state.selecting = false;
+  document.getElementById('selBar').hidden = true;
+  document.getElementById('selectMode').classList.remove('on');
+}
+function selectedRows() { return [...document.querySelectorAll('#board .card.selected')].map((el) => Number(el.dataset.row)); }
+function updateSelBar() { document.getElementById('selCount').textContent = selectedRows().length + '件選択中'; }
+
+async function onDrop(row, key, list) {
+  const c = state.customers.find((x) => x.row === row);
+  if (!c) return;
+  const before = c.forecast;
+  const items = list ? listItems(list) : null; // ドラッグで落とした位置の順番（画面を描き直す前に読む）
+  c.forecast = key;
+  render();
+  try {
+    const res = await api('moveCustomer', c.row, c.name, key);
+    c.row = res.row; c.updated = res.updated;
+    if (items) saveOrderOf(items);
+  } catch (e) {
+    c.forecast = before; render();
+    toast('保存できませんでした：' + e.message);
+  }
+}
+
+// ---------- 段階ボタン ----------
+const STAGE_FIELD = { call: 'firstCall', meeting: 'meeting', proposal: 'proposal', viewing: 'viewing', apply: 'applied' };
+
+// 予定を入れられる段階（Code.gs の PLAN_STAGES と同じ）
+const PLAN_FIELD = { call: 'planCall', meeting: 'planMeeting', viewing: 'planViewing' };
+
+function stageButtonHtml(c, st) {
+  const date = c[STAGE_FIELD[st.key]];
+  const count = parseInt(c.viewCount, 10) || 0;
+  const done = st.key === 'viewing' ? count > 0 || !!date : !!date;
+  const plan = PLAN_FIELD[st.key] ? c[PLAN_FIELD[st.key]] : '';
+  let sub = st.key === 'viewing' && done ? (count || 1) + '回' + (date ? '・初回' + shortDate(date) : '') : done ? shortDate(date) : '';
+  if (plan) sub = (sub ? sub + '・' : '') + '予定 ' + planLabel(plan);
+  const cls = done ? ' done' : plan ? ' planned' + (isPast(plan) ? ' late' : '') : '';
+  return '<div class="stage' + cls + '"><button data-stage="' + st.key + '">' + (done ? '✓ ' : plan ? '📅 ' : '') + esc(st.label) +
+    (sub ? '<small>' + esc(sub) + '</small>' : '') + '</button>' +
+    (st.key === 'viewing' && done ? '<button class="plus" data-stage="viewing" data-more="1">＋1回</button>' : '') + '</div>';
+}
+function planLabel(p) { const m = String(p).match(/-(\d{2})-(\d{2})[ T](\d{2}:\d{2})(〜\d{2}:\d{2})?/); return m ? Number(m[1]) + '/' + Number(m[2]) + ' ' + m[3] + (m[4] || '') : p; }
+// 予定の所要時間（分）。"14:00〜15:30" から計算、無ければ段階の初期値
+function planMinutesOf(p, key) {
+  const m = String(p || '').match(/(\d{2}):(\d{2})〜(\d{2}):(\d{2})/);
+  if (m) { const d = (m[3] * 60 + +m[4]) - (m[1] * 60 + +m[2]); if (d > 0) return d; }
+  return state.planMinutes[key] || 60;
+}
+function durationLabel(min) { const h = Math.floor(min / 60), m = min % 60; return (h ? h + '時間' : '') + (m ? m + '分' : ''); }
+function planDate(p) { const m = String(p).match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/); return m ? new Date(+m[1], m[2] - 1, +m[3], +m[4], +m[5]) : null; }
+function isPast(p) { const d = planDate(p); return !!d && d < new Date(); }
+
+// カードの予定表示：一番近い予定。過ぎていたら「実施報告待ち」
+function planTag(c) {
+  const plans = state.stages.filter((st) => PLAN_FIELD[st.key] && c[PLAN_FIELD[st.key]])
+    .map((st) => ({ label: st.label, p: c[PLAN_FIELD[st.key]] })).sort((a, b) => planDate(a.p) - planDate(b.p));
+  if (!plans.length) return '';
+  const late = plans.find((x) => isPast(x.p));
+  if (late) return '<span class="tag over">実施報告待ち ' + esc(late.label) + ' ' + esc(planLabel(late.p)) + '</span>';
+  return '<span class="tag plan">📅 ' + esc(planLabel(plans[0].p)) + ' ' + esc(plans[0].label) + '</span>';
+}
+
+// 予定を入れられる段階を押したときの選択パネル
+function openPlanBox(key) {
+  const c = current, st = state.stages.find((x) => x.key === key), plan = c[PLAN_FIELD[key]] || '';
+  const box = document.getElementById('planBox');
+  const pd = planDate(plan);
+  const defDate = pd ? toYmd(pd) : '', defTime = plan ? plan.slice(11, 16) : '';
+  const mins = planMinutesOf(plan, key);
+  const timeOpts = PLAN_TIMES.map((t) => '<option value="' + t + '"' + (t === defTime ? ' selected' : '') + '>' + t + '</option>').join('');
+  const quick = [['今日', 0], ['明日', 1], ['明後日', 2]].map(([l, d]) => '<button class="chip" data-plan-day="' + d + '">' + l + '</button>').join('');
+  const durOpts = Array.from({ length: 16 }, (_, i) => (i + 1) * 30)
+    .map((m) => '<option value="' + m + '"' + (m === mins ? ' selected' : '') + '>' + durationLabel(m) + '</option>').join('');
+  const doneDate = plan && isPast(plan) ? planLabel(plan).split(' ')[0] : '今日';
+  box.dataset.key = key;
+  box.innerHTML = '<div class="pb-title">' + esc(st.label) + (key === 'viewing' && (parseInt(c.viewCount, 10) || 0) ? '（' + ((parseInt(c.viewCount, 10) || 0) + 1) + '回目）' : '') + '</div>' +
+    '<button class="btn" data-plan-act="done">実施した（' + esc(doneDate) + 'で記録）</button>' +
+    '<div class="pb-grid">' +
+      '<label for="planDay">日付</label>' +
+      '<div class="pb-row"><input class="field" id="planDay" inputmode="numeric" placeholder="例：10/25" value="' + esc(defDate ? ymdLabel(defDate) : '') + '" autocomplete="off">' +
+        '<span class="calbtn" title="カレンダーから選ぶ">📅<input type="date" id="planDayPick" value="' + esc(defDate) + '" aria-label="カレンダーから選ぶ"></span></div>' +
+      '<span></span><div class="moves">' + quick + '</div>' +
+      '<label for="planTime">開始</label>' +
+      '<div class="pb-row"><input class="field" id="planTime" inputmode="numeric" placeholder="例：14:00" value="' + esc(defTime) + '" autocomplete="off">' +
+        '<select class="field tsel" id="planTimeSel" aria-label="時間を選ぶ"><option value="">選ぶ</option>' + timeOpts + '</select></div>' +
+      '<label for="planDur">所要時間</label>' +
+      '<select class="field" id="planDur">' + durOpts + '</select>' +
+    '</div>' +
+    '<button class="btn ghost" data-plan-act="save">' + (plan ? '予定を変更' : '予定を入れる') + '</button>' +
+    (plan ? '<button class="btn ghost" data-plan-act="clear">予定を取り消す</button>' : '') +
+    '<div class="hint">予定は分析に数えません。予定を入れると、開始時間から所要時間の分だけ担当者のGoogleカレンダーに入ります。「実施した」を押したときに実施として記録します。</div>';
+  box.hidden = false;
+  box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+// 予定の開始時間は 8:00〜22:30（30分刻みで選べる。手入力なら分も自由）
+const PLAN_TIMES = Array.from({ length: 30 }, (_, i) => String(8 + Math.floor(i / 2)).padStart(2, '0') + ':' + (i % 2 ? '30' : '00'));
+const WEEK = ['日', '月', '火', '水', '木', '金', '土'];
+function toYmd(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function ymdLabel(ymd) { const [y, m, d] = ymd.split('-').map(Number); return m + '/' + d + '（' + WEEK[new Date(y, m - 1, d).getDay()] + '）'; }
+
+/** 「10/25」「10月25日」「1025」「2026/10/25」などを "2026-10-25" に。年がなければ今年（1か月以上前なら来年） */
+function parseDayInput(text) {
+  const t = String(text || '').replace(/（.*?）|\(.*?\)/g, '').replace(/[０-９／－．]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)).trim();
+  let m = t.match(/^(\d{4})[\/\-年.](\d{1,2})[\/\-月.](\d{1,2})日?$/), y, mo, d;
+  if (m) { y = +m[1]; mo = +m[2]; d = +m[3]; }
+  else if ((m = t.match(/^(\d{1,2})[\/\-月.](\d{1,2})日?$/)) || (m = t.match(/^(\d{1,2})(\d{2})$/))) {
+    mo = +m[1]; d = +m[2]; y = now.getFullYear();
+    if (new Date(y, mo - 1, d) < new Date(now.getFullYear(), now.getMonth() - 1, now.getDate())) y++;
+  } else return '';
+  const dt = new Date(y, mo - 1, d);
+  return dt.getMonth() === mo - 1 && dt.getDate() === d ? toYmd(dt) : '';
+}
+
+/** 「14」「14:30」「1430」「14時」「14時30分」を "14:30" に。8:00〜22:59 以外は '' */
+function parseTimeInput(text) {
+  const t = String(text || '').replace(/[０-９：]/g, (c) => (c === '：' ? ':' : String.fromCharCode(c.charCodeAt(0) - 0xFEE0))).replace(/\s/g, '');
+  const m = t.match(/^(\d{1,2})(?:[:時]?(\d{2})分?)?時?$/);
+  if (!m) return '';
+  const h = +m[1], mi = m[2] ? +m[2] : 0;
+  if (mi > 59 || h < 8 || h > 22) return '';
+  return String(h).padStart(2, '0') + ':' + String(mi).padStart(2, '0');
+}
+
+async function planAction(act) {
+  const c = current, key = document.getElementById('planBox').dataset.key;
+  if (act === 'done') return pressStage(key, key === 'viewing', true);
+  try {
+    let res;
+    if (act === 'save') {
+      const day = parseDayInput(document.getElementById('planDay').value);
+      if (!day) return toast('日付は「10/25」のように入れるか、📅 から選んでください');
+      const time = parseTimeInput(document.getElementById('planTime').value);
+      if (!time) return toast('開始は 8:00〜22:30 の間で「14:00」のように入れるか、選んでください');
+      const at = day + 'T' + time;
+      res = await api('setPlan', c.row, c.name, key, at, Number(document.getElementById('planDur').value));
+    } else {
+      if (!confirm('予定を取り消しますか？（カレンダーの予定も消えます）')) return;
+      res = await api('clearPlan', c.row, c.name, key);
+    }
+    Object.assign(c, res);
+    render(); openSheet(c.row);
+    toast(act === 'save' ? '予定を入れました（' + res.calendar + '）' : '予定を取り消しました');
+  } catch (e) { toast('保存できませんでした：' + e.message); }
+}
+function shortDate(v) { const m = String(v || '').match(/(\d{1,2})\/(\d{1,2})$/); return m ? Number(m[1]) + '/' + Number(m[2]) : String(v || ''); }
+
+async function pressStage(key, more, fromBox) {
+  const c = current, st = state.stages.find((x) => x.key === key);
+  const date = c[STAGE_FIELD[key]], count = parseInt(c.viewCount, 10) || 0;
+  const done = key === 'viewing' ? count > 0 || !!date : !!date;
+  // 予定を入れられる段階は、まだ実施していなければ（内覧は＋1回でも）「予定／実施」を選ぶ
+  if (!fromBox && PLAN_FIELD[key] && (!done || more)) return openPlanBox(key);
+  const undo = done && !more;
+  if (undo && !confirm('「' + st.label + '」' + (key === 'viewing' ? 'を1回分' : 'の記録を') + '取り消しますか？')) return;
+  if (key === 'apply' && !undo) return winCase(c);
+  try {
+    const res = await api('recordStage', c.row, c.name, key, undo);
+    Object.assign(c, res);
+    render(); openSheet(c.row);
+    if (key === 'apply' && !undo) { if (res.contractId) loadContracts(); if (res.warning) toast(res.warning); return celebrate(c); }
+    toast(res.warning || (st.label + (undo ? 'を取り消しました' : (key === 'viewing' ? '（' + (parseInt(res.viewCount, 10) || '') + '回目）' : '') + 'を記録しました')));
+  } catch (e) { toast('記録できませんでした：' + e.message); }
+}
+
+// 成約：シートへの保存を待たずに、先に今月の列へ移して光らせる（保存に失敗したら元に戻す）。
+// 契約進捗の案件づくりは、保存のあとに裏で行う（contractAfterWin）
+async function winCase(c) {
+  const before = Object.assign({}, c);
+  Object.assign(c, { status: '完了', result: 'won', closed: true, forecast: THIS_MONTH, boardMonth: THIS_MONTH, applied: TODAY.slice(5).replace('-', '/'), alertDate: '', alertNote: '' });
+  celebrate(c);
+  try {
+    const res = await api('recordStage', c.row, c.name, 'apply', false);
+    Object.assign(c, res, { closed: true });
+    if (!state.selecting && document.getElementById('sheet').style.display !== 'block') render();
+    if (res.warning) toast(res.warning);
+    if (!isSale(c) && CONTRACT_URL && !c.contractId) {
+      const ct = await api('contractAfterWin', c.row, c.name);
+      if (ct.contractId) { c.contractId = ct.contractId; loadContracts(); }
+      if (ct.warning) toast(ct.warning);
+    }
+  } catch (e) {
+    Object.keys(c).forEach((k) => { if (!(k in before)) delete c[k]; });
+    Object.assign(c, before); render();
+    alert('成約を保存できませんでした：' + e.message + '\n（元に戻しました）');
+  }
+}
+
+// 成約したら今月の列へ移ってカードが光る
+function celebrate(c) {
+  const [nm] = splitName(c.name);
+  closeSheet(); state.offset = 0; render();
+  const card = document.querySelector('.card[data-row="' + c.row + '"]');
+  if (card) { card.classList.add('just'); card.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' }); }
+  toast('🎉 ' + nm + ' さん成約！おめでとうございます！');
+}
+
+async function saveRename() {
+  const c = current, btn = document.getElementById('renameSave');
+  const newName = document.getElementById('rnName').value.trim(), kana = document.getElementById('rnKana').value.trim();
+  if (!newName) return toast('名前を入力してください');
+  btn.disabled = true; btn.textContent = '保存中…';
+  try {
+    const res = await api('renameCustomer', c.row, c.name, newName, kana);
+    Object.assign(c, { row: res.row, updated: res.updated, name: res.name });
+    render(); openSheet(c.row); toast('名前を「' + res.name + '」に直しました');
+  } catch (e) { btn.disabled = false; btn.textContent = '保存'; toast('保存できませんでした：' + e.message); }
+}
+
+// 担当（E列）：上の段で主担当、下の段でその人の送客の付け方（E列のプルダウンにある組み合わせだけ）を選ぶ
+// 小嶋さんから引き継ぐときは「◯◯（小嶋送客）」に「おすすめ」が付く
+let staffPick = null; // 上の段で選んだ主担当（まだ保存していない）
+function splitStaff(v) { const m = String(v || '').match(/^(.*?)(（.*）)?$/); return [m[1], m[2] || '']; }
+function staffSecHtml(c) {
+  const opts = state.staffOptions || [];
+  if (!opts.length) return '';
+  const cur = c.staffRaw || c.staff || '';
+  const [curMain] = splitStaff(cur);
+  const mains = [...new Set(opts.map((o) => splitStaff(o)[0]))];
+  const pick = staffPick && mains.includes(staffPick) ? staffPick : curMain;
+  const variants = opts.filter((o) => splitStaff(o)[0] === pick);
+  const rec = pick !== curMain && mains.includes(curMain) ? pick + '（' + short(curMain) + '送客）' : '';
+  return '<div class="sec staffpick"><div class="lbl">担当（シートのE列）　今：<b>' + esc(cur || '—') + '</b></div>' +
+    '<div class="moves">' + mains.map((m) => '<button class="chip' + (m === pick ? ' on' : '') + '" data-staffmain="' + esc(m) + '">' + esc(short(m)) + '</button>').join('') + '</div>' +
+    '<div class="sublbl">' + esc(short(pick)) + 'さんのどれにしますか（押すとシートに保存）</div>' +
+    '<div class="moves">' + variants.map((v) => { const sfx = splitStaff(v)[1];
+      return '<button class="chip' + (v === cur ? ' on' : '') + (v === rec ? ' rec' : '') + '" data-staffset="' + esc(v) + '">' + esc(sfx ? sfx.replace(/[（）]/g, '') : '送客なし') + '</button>'; }).join('') + '</div></div>';
+}
+async function pressStaff(v) {
+  const c = current;
+  if ((c.staffRaw || c.staff) === v) return;
+  if (!confirm('担当を「' + v + '」に変えますか？\n（シートのE列を書き換えます。担当者の画面も変わります）')) return;
+  try {
+    const res = await api('setStaff', c.row, c.name, v);
+    Object.assign(c, { row: res.row, updated: res.updated, staff: res.staff, referrer: res.referrer, owners: res.owners, staffRaw: res.staffRaw, insta: res.insta });
+    staffPick = null; render(); openSheet(c.row);
+    toast(res.warning || '担当を「' + v + '」にしました' + (res.moved ? '（先の予定' + res.moved + '件を新しい担当のカレンダーに移しました）' : ''));
+  } catch (e) { alert('担当を変更できませんでした：' + e.message); }
+}
+
+async function pressDealType(t) {
+  const c = current;
+  if (c.dealType === t) return;
+  try {
+    const res = await api('setDealType', c.row, c.name, t);
+    Object.assign(c, { row: res.row, updated: res.updated, dealType: t });
+    render(); openSheet(c.row); toast('取引種別を「' + t + '」にしました');
+  } catch (e) { toast('変更できませんでした：' + e.message); }
+}
+
+async function pressStatus(status) {
+  const c = current;
+  try {
+    const res = await api('setStatus', c.row, c.name, status);
+    Object.assign(c, { row: res.row, updated: res.updated, status: status });
+    render(); openSheet(c.row); toast('「' + status + '」にしました');
+  } catch (e) { toast('更新できませんでした：' + e.message); }
+}
+
+// ---------- 詳細 ----------
+let current = null;
+function openSheet(row) {
+  if (!current || current.row !== row) staffPick = null; // 別の人を開いたら、選びかけの担当は忘れる
+  current = state.customers.find((x) => x.row === row);
+  if (!current) return;
+  const c = current;
+  const [nm, kana] = splitName(c.name);
+  const cols = columns();
+  const moveTargets = [['', '未振り分け'], ...[0, 1, 2, 3].map((i) => { const m = addMonths(THIS_MONTH, i); return [m, relLabel(m) + '（' + monthLabel(m) + '）']; }),
+    [AERIAL, '空中戦'], [OTHER, 'その他']];
+  const info = [['担当者', c.staff], ['送客元', c.referrer], ['紹介月', c.introMonth], ['紹介種別', c.introType], ['引越し時期', c.moveTime],
+    ['物件名・号室', c.property],
+    ['入居日', c.moveIn], ['最終更新', c.updated]].filter((x) => x[1]);
+
+  document.getElementById('sheet').innerHTML =
+    '<div style="display:flex;align-items:start;gap:8px"><div style="flex:1;min-width:0"><h2>' + esc(nm) + '</h2><div class="sub">' + esc(kana) + '　シート ' + c.row + '行目' +
+      '　<button class="linkbtn" id="renameOpen">名前を直す</button></div></div>' +
+    '<button class="icon-btn" id="close">✕</button></div>' +
+    '<div class="renamebox" id="renameBox" hidden>' +
+      '<label>名前<input class="field" id="rnName" value="' + esc(nm) + '" autocomplete="off"></label>' +
+      '<label>フリガナ<input class="field" id="rnKana" value="' + esc(kana) + '" autocomplete="off"></label>' +
+      '<div class="rn-act"><button class="btn ghost" id="renameCancel">やめる</button><button class="btn" id="renameSave">保存</button></div>' +
+      '<div class="hint">シートのA列が「名前（フリガナ）」に変わります。議事録フォルダとカレンダーの予定の名前も合わせて変えます。</div></div>' +
+    '<div class="sec"><div class="lbl">見込み</div><div class="moves">' +
+      moveTargets.map(([k, l]) => '<button class="chip' + (c.forecast === k ? ' on' : '') + '" data-move="' + esc(k) + '">' + esc(l) + '</button>').join('') +
+    '</div></div>' +
+    staffSecHtml(c) +
+    '<div class="sec"><div class="lbl">取引種別（シートのD列）</div><div class="moves">' + state.dealTypes.map((t) =>
+      '<button class="chip' + (c.dealType === t ? ' on' : '') + '" data-deal="' + esc(t) + '">' + esc(t) + '</button>').join('') + '</div></div>' +
+    '<div class="sec"><div class="lbl">進捗（初回電話・面談・内覧は予定も入れられます。記録済みをもう一度押すと取り消し）　今：<b>' + esc(statusLabel(c.status) || '—') + '</b></div>' +
+      '<div class="stages">' + state.stages.map((st) => stageButtonHtml(c, st)).join('') + '</div>' +
+      '<div class="planbox" id="planBox" hidden></div>' +
+      '<div class="moves" style="margin-top:8px">' + state.statusButtons.map((b) =>
+        '<button class="chip' + (c.status === b ? ' on' : '') + '" data-status="' + esc(b) + '">' + esc(b) + '</button>').join('') +
+        // 失客も同じ並びに。失客の人は「失客から戻す」
+        (c.result === 'lost'
+          ? '<button class="chip lostchip on">失客</button><button class="chip revive" id="revive">↩ 失客から戻す</button>'
+          : c.closed ? '' : '<button class="chip lostchip" id="loseOpen">失客</button>') + '</div>' +
+      '<div class="losebox" id="loseBox" hidden><div class="closebar">' +
+        '<button class="btn lose" id="markLost">今月の失客</button><button class="btn ghost" id="markArchive">過去の失客（整理）</button></div>' +
+        '<div class="hint">「今月の失客」は今月の列にグレーで残り、今月の失客に数えます。「過去の失客（整理）」は、以前から連絡が取れていない人などをボードから片付けるだけで、今月には数えません。どちらもあとで「失客から戻す」で戻せます。</div></div></div>' +
+    (c.result === 'won' && !isSale(c) && CONTRACT_URL ? '<div class="sec"><div class="lbl">契約進捗</div><div id="ctSec"></div></div>' : '') +
+    '<div class="sec"><div class="lbl">メモ（シートのC列）</div><textarea class="field" id="fMemo">' + esc(c.memo) + '</textarea>' +
+      '<div style="margin-top:6px;text-align:right"><button class="btn" id="save">保存</button></div></div>' +
+    '<div class="sec"><div class="lbl">追客アラート（前日18時・当日8時に担当者へメール＋カレンダー）</div>' +
+      '<input class="field" id="aDate" type="date" value="' + esc(c.alertDate || '') + '" min="' + TODAY + '">' +
+      '<input class="field" id="aNote" style="margin-top:6px" placeholder="内容（例：内覧の日程確認）" value="' + esc(c.alertNote || '') + '">' +
+      '<div style="margin-top:6px;display:flex;gap:6px;justify-content:flex-end">' +
+        (c.alertDate ? '<button class="btn ghost" id="alertClear">対応済み（解除）</button>' : '') +
+        '<button class="btn" id="alertSet">' + (c.alertDate ? '変更' : '設定') + '</button></div></div>' +
+    '<div class="sec"><div class="lbl">議事録</div>' +
+      '<div class="addbar"><button class="btn ghost" data-add="link">＋ Googleメモのリンク</button><button class="btn ghost" data-add="file">＋ PDFをアップロード</button><button class="btn ghost" data-add="text">＋ 一言メモ</button></div>' +
+      '<div class="addform" id="addForm"></div><div id="notes" style="margin-top:8px;color:var(--sub)">読み込み中…</div></div>' +
+    '<div class="sec"><div class="lbl">シートの情報</div><dl class="info">' + info.map(([k, v]) => '<dt>' + esc(k) + '</dt><dd>' + esc(v) + '</dd>').join('') + '</dl></div>';
+
+  document.getElementById('sheetBg').style.display = 'block';
+  document.getElementById('sheet').style.display = 'block';
+  document.getElementById('sheet').scrollTop = 0;
+  loadNotes();
+  fillContract(c);
+}
+function closeSheet() {
+  staffPick = null;
+  document.getElementById('sheetBg').style.display = 'none';
+  document.getElementById('sheet').style.display = 'none';
+  current = null;
+}
+
+async function loadNotes() {
+  const c = current;
+  try { renderNotes(await api('getNotes', c.row, c.name)); }
+  catch (e) { document.getElementById('notes').textContent = '読み込めませんでした：' + e.message; }
+}
+function renderNotes(res) {
+  if (!current) return;
+  current.notes = res.notes.length;
+  document.getElementById('notes').innerHTML = (res.notes.length ? res.notes.map((n) =>
+    '<div class="note"><div class="meta">' + esc(n.date) + '・' + esc(n.type) + '・' + esc(n.by) + '</div>' +
+    (n.url ? '<a href="' + esc(n.url) + '" target="_blank" rel="noopener">' + esc(n.title || n.url) + '</a>' : '') +
+    (n.memo ? '<div>' + esc(n.memo) + '</div>' : '') + '</div>').join('') : 'まだありません') +
+    (res.folderUrl ? '<div style="margin-top:6px"><a href="' + esc(res.folderUrl) + '" target="_blank" rel="noopener" style="color:var(--accent);font-size:12px">Driveフォルダを開く</a></div>' : '');
+}
+
+function showAddForm(kind) {
+  const f = document.getElementById('addForm');
+  f.style.display = 'flex';
+  f.dataset.kind = kind;
+  f.innerHTML =
+    (kind === 'link' ? '<input class="field" id="aUrl" type="url" placeholder="https://docs.google.com/document/d/…"><input class="field" id="aTitle" placeholder="タイトル（空欄ならファイル名）">' : '') +
+    (kind === 'file' ? '<input class="field" id="aFile" type="file" accept="application/pdf,image/*">' : '') +
+    '<textarea class="field" id="aMemo" placeholder="' + (kind === 'text' ? '内容' : '一言メモ（任意）') + '"></textarea>' +
+    '<div style="text-align:right"><button class="btn ghost" id="aCancel">やめる</button> <button class="btn" id="aSubmit">追加</button></div>';
+}
+
+async function submitAdd() {
+  const c = current, kind = document.getElementById('addForm').dataset.kind;
+  const memo = document.getElementById('aMemo').value.trim();
+  const btn = document.getElementById('aSubmit'); btn.disabled = true; btn.textContent = '追加中…';
+  try {
+    let res;
+    if (kind === 'link') {
+      res = await api('addNoteLink', c.row, c.name, document.getElementById('aUrl').value.trim(), document.getElementById('aTitle').value.trim(), memo);
+    } else if (kind === 'file') {
+      const file = document.getElementById('aFile').files[0];
+      if (!file) throw new Error('ファイルを選んでください');
+      if (file.size > 20 * 1024 * 1024) throw new Error('20MBまでのファイルにしてください');
+      const b64 = await new Promise((ok, ng) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.onerror = ng; r.readAsDataURL(file); });
+      res = await api('uploadNoteFile', c.row, c.name, file.name, file.type || 'application/pdf', b64, memo);
+    } else {
+      if (!memo) throw new Error('内容を入力してください');
+      res = await api('addNoteText', c.row, c.name, memo);
+    }
+    document.getElementById('addForm').style.display = 'none';
+    renderNotes(res); render(); toast('追加しました');
+  } catch (e) {
+    btn.disabled = false; btn.textContent = '追加';
+    toast(e.message);
+  }
+}
+
+async function setAlertDate() {
+  const c = current, btn = document.getElementById('alertSet');
+  const date = document.getElementById('aDate').value, note = document.getElementById('aNote').value.trim();
+  if (!date) return toast('日付を選んでください');
+  btn.disabled = true; btn.textContent = '設定中…';
+  try {
+    const res = await api('setAlert', c.row, c.name, date, note);
+    Object.assign(c, { row: res.row, updated: res.updated, alertDate: date, alertNote: note });
+    render(); openSheet(c.row); toast('アラートを設定しました（' + res.calendar + '）');
+  } catch (e) { btn.disabled = false; btn.textContent = '設定'; toast('設定できませんでした：' + e.message); }
+}
+
+async function clearAlertDate() {
+  const c = current;
+  try {
+    const res = await api('clearAlert', c.row, c.name);
+    Object.assign(c, { row: res.row, updated: res.updated || c.updated, alertDate: '', alertNote: '' });
+    render(); openSheet(c.row); toast('アラートを解除しました');
+  } catch (e) { toast('解除できませんでした：' + e.message); }
+}
+
+async function archiveCase() {
+  const c = current, [nm] = splitName(c.name);
+  if (!confirm(nm + ' さんを「過去の失客」として整理しますか？\nB列は「失客」になり、ボードから消えます（今月の失客には数えません）。')) return;
+  try {
+    const res = await api('archiveLostCustomer', c.row, c.name);
+    Object.assign(c, { row: res.row, updated: res.updated, closed: true, status: '失客', alertDate: '', alertNote: '', forecast: '', boardMonth: '', result: 'lost' });
+    closeSheet(); render(); toast(nm + ' さんを整理しました');
+  } catch (e) { toast('更新できませんでした：' + e.message); }
+}
+
+// 失客から戻す：B列を記録が残っている一番先の段階（無ければ追客）に戻す。見込み月はそのまま
+async function reviveCase() {
+  const c = current, [nm] = splitName(c.name);
+  if (!confirm(nm + ' さんを失客から戻しますか？\n（B列を前の段階に戻し、メモに「失客から戻す」と追記します）')) return;
+  try {
+    const res = await api('reviveCustomer', c.row, c.name);
+    Object.assign(c, { row: res.row, updated: res.updated, closed: false, status: res.status, memo: res.memo, result: '', boardMonth: '' });
+    render(); openSheet(c.row); toast(nm + ' さんを失客から戻しました（' + statusLabel(res.status) + '）');
+  } catch (e) { toast('戻せませんでした：' + e.message); }
+}
+
+async function loseCase() {
+  const c = current, [nm] = splitName(c.name);
+  const reason = prompt(nm + ' さんを「失客」にします。理由を一言（メモ欄に追記されます）', '');
+  if (reason === null) return;
+  try {
+    const res = await api('loseCustomer', c.row, c.name, reason.trim());
+    Object.assign(c, { row: res.row, updated: res.updated, closed: true, status: '失客', alertDate: '', alertNote: '',
+      forecast: res.forecast || c.forecast, boardMonth: res.boardMonth || THIS_MONTH, result: 'lost' });
+    closeSheet(); state.offset = 0; render();
+    toast(nm + ' さんを失客にしました');
+  } catch (e) { toast('更新できませんでした：' + e.message); }
+}
+
+async function saveFields() {
+  const c = current, btn = document.getElementById('save');
+  const fields = { memo: document.getElementById('fMemo').value };
+  btn.disabled = true; btn.textContent = '保存中…';
+  try {
+    const res = await api('updateCustomer', c.row, c.name, fields);
+    Object.assign(c, fields, { row: res.row, updated: res.updated });
+    render(); toast('保存しました');
+  } catch (e) { toast('保存できませんでした：' + e.message); }
+  btn.disabled = false; btn.textContent = '保存';
+}
+
+// ---------- イベント ----------
+document.getElementById('board').addEventListener('click', (e) => {
+  const hx = e.target.closest('[data-hide]'); if (hx) return hideCase(Number(hx.dataset.hide));
+  const card = e.target.closest('.card'); if (!card) return;
+  if (state.selecting) { setTimeout(updateSelBar, 0); return; } // 選択モード中はタップで選ぶだけ（選択はドラッグ部品が付け外しする）
+  openSheet(Number(card.dataset.row));
+});
+document.getElementById('selectMode').addEventListener('click', () => { if (state.selecting) { endSelecting(); render(); } else startSelecting(); });
+document.getElementById('selCancel').addEventListener('click', () => { endSelecting(); render(); });
+document.getElementById('selMove').addEventListener('click', () => {
+  const rows = selectedRows();
+  if (!rows.length) return toast('移動するカードをタップして選んでください');
+  onDropMany(rows, document.getElementById('selDest').value, null);
+});
+document.getElementById('staffChips').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-who]'); if (!b) return;
+  state.who = b.dataset.who; remember('who', state.who); renderChips(); render();
+});
+document.getElementById('hiddenOpen').addEventListener('click', openHiddenList);
+document.getElementById('sheet').addEventListener('click', (e) => {
+  if (e.target.id === 'close') return closeSheet();
+  const rs = e.target.closest('[data-restore]'); if (rs) return restoreCase(Number(rs.dataset.restore), rs);
+  if (e.target.id === 'renameOpen') { document.getElementById('renameBox').hidden = false; document.getElementById('rnName').focus(); return; }
+  if (e.target.id === 'renameCancel') { document.getElementById('renameBox').hidden = true; return; }
+  if (e.target.id === 'renameSave') return saveRename();
+  if (e.target.id === 'save') return saveFields();
+  if (e.target.id === 'ctCreate') return createContractCase();
+  const cl = e.target.closest('[data-ctlink]'); if (cl) return linkContractCase(cl.dataset.ctlink, cl);
+  const pa = e.target.closest('[data-plan-act]'); if (pa) return planAction(pa.dataset.planAct);
+  const qd = e.target.closest('[data-plan-day]');
+  if (qd) { const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + Number(qd.dataset.planDay)); setPlanDay(toYmd(d)); return; }
+  const dl = e.target.closest('[data-deal]'); if (dl) return pressDealType(dl.dataset.deal);
+  const sm = e.target.closest('[data-staffmain]'); if (sm && current) { staffPick = sm.dataset.staffmain; const y = document.getElementById('sheet').scrollTop; openSheet(current.row); document.getElementById('sheet').scrollTop = y; return; }
+  const ss = e.target.closest('[data-staffset]'); if (ss) return pressStaff(ss.dataset.staffset);
+  const stg = e.target.closest('[data-stage]'); if (stg) return pressStage(stg.dataset.stage, !!stg.dataset.more);
+  const stt = e.target.closest('[data-status]'); if (stt) return pressStatus(stt.dataset.status);
+  if (e.target.id === 'alertSet') return setAlertDate();
+  if (e.target.id === 'alertClear') return clearAlertDate();
+  if (e.target.id === 'loseOpen') { const b = document.getElementById('loseBox'); b.hidden = !b.hidden; if (!b.hidden) b.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); return; }
+  if (e.target.id === 'revive') return reviveCase();
+  if (e.target.id === 'markLost') return loseCase();
+  if (e.target.id === 'markArchive') return archiveCase();
+  if (e.target.id === 'aSubmit') return submitAdd();
+  if (e.target.id === 'aCancel') { document.getElementById('addForm').style.display = 'none'; return; }
+  const add = e.target.closest('[data-add]'); if (add) return showAddForm(add.dataset.add);
+  const mv = e.target.closest('[data-move]');
+  if (mv && current) {
+    const row = current.row;
+    onDrop(row, mv.dataset.move).then(() => { if (current && current.row === row) openSheet(row); });
+  }
+});
+document.getElementById('sheetBg').addEventListener('click', closeSheet);
+function setPlanDay(ymd) {
+  document.getElementById('planDay').value = ymdLabel(ymd);
+  document.getElementById('planDayPick').value = ymd;
+}
+// 予定パネルの入力：カレンダーで選んだ日・時間の選択を手入力欄へ、手入力は見やすい形に整える
+document.getElementById('sheet').addEventListener('change', (e) => {
+  if (e.target.id === 'planDayPick' && e.target.value) setPlanDay(e.target.value);
+  if (e.target.id === 'planTimeSel' && e.target.value) document.getElementById('planTime').value = e.target.value;
+});
+document.getElementById('sheet').addEventListener('focusout', (e) => {
+  if (e.target.id === 'planDay' && e.target.value) { const d = parseDayInput(e.target.value); if (d) setPlanDay(d); }
+  if (e.target.id === 'planTime' && e.target.value) { const t = parseTimeInput(e.target.value); if (t) e.target.value = t; }
+});
+// 「分析」は分析ボード（同じアプリの別ページ）に切り替える。最後に見ていたページで開く
+function goAnalysis() {
+  let p = '';
+  try { p = localStorage.getItem('nenji.lastPage') || ''; } catch (e) {}
+  document.getElementById('board').innerHTML = '<div class="loading">成績ダッシュボードを開いています…</div>';
+  window.open(APP_URL + '?page=analysis' + (p ? '&p=' + encodeURIComponent(p) : ''), '_top');
+}
+document.getElementById('views').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-view]'); if (!b) return;
+  if (b.dataset.view === 'analysis') return goAnalysis();
+  if (b.dataset.view === 'contract') return window.open(CONTRACT_URL, '_blank'); // 契約進捗アプリの一覧（担当を選ぶ画面）を別のタブで開くだけ
+  if (b.dataset.view === 'manual') return window.open(MANUAL_URL, '_blank');
+  endSelecting(); state.view = b.dataset.view; remember('view', state.view); render();
+  document.getElementById('board').scrollTo(0, 0); window.scrollTo(0, 0);
+});
+document.getElementById('saleBar').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-kind]'); if (!b) return;
+  state.saleKind = b.dataset.kind;
+  document.querySelectorAll('#saleBar [data-kind]').forEach((x) => x.classList.toggle('on', x === b));
+  render();
+});
+document.getElementById('prev').addEventListener('click', () => { if (state.offset > -24) { state.offset--; render(); } });
+document.getElementById('next').addEventListener('click', () => { state.offset++; render(); });
+document.getElementById('reload').addEventListener('click', () => { state.sales = null; load.fresh = true; document.getElementById('board').innerHTML = '<div class="loading">読み込み中…</div>'; load(); });
+let qTimer;
+document.getElementById('q').addEventListener('input', (e) => { clearTimeout(qTimer); qTimer = setTimeout(() => { state.q = e.target.value.trim(); render(); }, 200); });
+
+load();
+</script>
+</body>
+</html>
