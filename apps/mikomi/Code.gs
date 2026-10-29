@@ -1247,13 +1247,26 @@ const SUMMARY_PROMPT = [
 function summarizeDoc_(fileId) {
   const key = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
   if (!key) return { error: 'APIキーが未設定です' };
-  let text;
+  // Google ドキュメントは本文の文字、PDF はファイルそのものを Claude に渡す
+  let content;
   try {
-    text = DocumentApp.openById(fileId).getBody().getText().trim();
+    const file = DriveApp.getFileById(fileId);
+    const mime = file.getMimeType();
+    if (mime === 'application/pdf') {
+      content = [
+        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: Utilities.base64Encode(file.getBlob().getBytes()) } },
+        { type: 'text', text: 'この PDF が面談の議事録です。' },
+      ];
+    } else if (mime === 'application/vnd.google-apps.document') {
+      const text = DocumentApp.openById(fileId).getBody().getText().trim();
+      if (!text) return { error: '文書が空でした' };
+      content = '<議事録>\n' + text + '\n</議事録>';
+    } else {
+      return { error: '要点を作れるのは Google ドキュメントと PDF だけです' };
+    }
   } catch (e) {
     return { error: '文書を開けませんでした（担当者の「Meet Recordings」フォルダを info@ に共有してください）' };
   }
-  if (!text) return { error: '文書が空でした' };
   const res = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
     method: 'post',
     contentType: 'application/json',
@@ -1265,7 +1278,7 @@ function summarizeDoc_(fileId) {
       fallbacks: 'default',
       output_config: { effort: 'low' },
       system: SUMMARY_PROMPT,
-      messages: [{ role: 'user', content: '<議事録>\n' + text + '\n</議事録>' }],
+      messages: [{ role: 'user', content: content }],
     }),
   });
   const code = res.getResponseCode();

@@ -236,7 +236,7 @@
   .note { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; font-size: 13px; }
   .note .meta { color: var(--sub); font-size: 11px; }
   .note .memo { white-space: pre-wrap; margin-top: 4px; }
-  .note .sumbtn { margin-top: 6px; font-size: 12px; }
+  .note .sumbtn { display: block; margin-top: 6px; font-size: 12px; }
   .cno { font-size: 10px; color: var(--sub); font-weight: 400; margin-left: 6px; font-variant-numeric: tabular-nums; }
   .meetbox { margin-top: 10px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; gap: 6px; }
   .meetbox a { color: var(--accent); word-break: break-all; font-size: 13px; }
@@ -1371,7 +1371,7 @@ function renderNotes(res) {
     '<div class="note"><div class="meta">' + esc(n.date) + '・' + esc(n.type) + '・' + esc(n.by) + '</div>' +
     (n.url ? '<a href="' + esc(n.url) + '" target="_blank" rel="noopener">' + esc(n.title || n.url) + '</a>' : '') +
     (n.memo ? '<div class="memo">' + esc(n.memo) + '</div>' : '') +
-    (n.fileId && /docs\.google\.com\/document/.test(n.url) && (!n.memo || /^（要点：/.test(n.memo))
+    (n.fileId && (/docs\.google\.com\/document/.test(n.url) || n.type === 'PDF') && (!n.memo || /^（要点：/.test(n.memo))
       ? '<button class="btn ghost sumbtn" data-summarize="' + esc(n.fileId) + '">✨ Claude で要点を作る</button>' : '') + '</div>').join('') : 'まだありません') +
     (res.folderUrl ? '<div style="margin-top:6px"><a href="' + esc(res.folderUrl) + '" target="_blank" rel="noopener" style="color:var(--accent);font-size:12px">Driveフォルダを開く</a></div>' : '');
 }
