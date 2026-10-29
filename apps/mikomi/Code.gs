@@ -1052,7 +1052,7 @@ function createMeetEvent_(owner, title, start, end, note, no) {
   const color = staff && staff.event ? String(CalendarApp.EventColor[staff.event] || '') : '';
   const body = {
     summary: title,
-    description: (note ? note + '\n\n' : '') + '見込みボード：' + ScriptApp.getService().getUrl(),
+    description: note || '', // Meet の詳細にも出るので、見込みボードのリンクは入れない（顧客名・顧客No・担当だけ）
     start: { dateTime: start.toISOString(), timeZone: 'Asia/Tokyo' },
     end: { dateTime: end.toISOString(), timeZone: 'Asia/Tokyo' },
     conferenceData: { createRequest: { requestId: Utilities.getUuid(), conferenceSolutionKey: { type: 'hangoutsMeet' } } },
