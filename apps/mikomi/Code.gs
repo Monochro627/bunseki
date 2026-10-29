@@ -102,9 +102,13 @@ const APP_COLS = {
   planCall: '初回電話予定', planMeeting: '面談予定', planViewing: '内覧予定', planEvents: '予定カレンダー',
   order: '並び順', // 列の中での並び順（小さいほど上）。ボードで上下にドラッグすると入る
   contract: '契約進捗ID', // 契約進捗アプリの案件ID（成約したときに作る／つなぐ）
+  customerNo: '顧客No', // M0001 の形。上の行から振り、新しい顧客には次の番号を自動で付ける。カレンダーの予定と議事録をこの番号でつなぐ
+  meetCount: '面談回数', // 面談を何回したか（内覧回数と同じ「2回」の形）
+  meetLink: '面談Meet', // いちばん新しい面談の Google Meet のリンク
 };
+const CUSTOMER_NO_PREFIX = 'M';
 
-const CACHE_KEY = 'board_v17';
+const CACHE_KEY = 'board_v18';
 // 保存の順番待ち（ロック）を待つ最大の時間。混んでいても失敗しないように長め（Apps Script は1回6分まで動ける）
 const LOCK_WAIT = 30000;
 const CACHE_TTL = 600; // 10分。アプリから書くとき・シートを直接直したとき（onSheetEdit）は捨てるので、長めでよい
@@ -139,6 +143,7 @@ function setup() {
   getNotesRoot_();
   installAlertTriggers_();
   installEditTrigger_();
+  installMeetTrigger_();
   clearCache_();
 }
 
@@ -169,6 +174,7 @@ function getBoard(fresh) {
 function buildBoard_() {
   const sheet = getSheet_();
   const map = ensureAppColumns_(sheet);
+  assignCustomerNos_(sheet, map); // 番号の無い顧客に顧客No を振る（新しく足された行も1分以内に付く）
   const lastRow = sheet.getLastRow();
   const values = lastRow < 2 ? [] : sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getDisplayValues();
   // 申込日は表示が「09/11」で年が無いので、日付の値から年月を取る（成約した月の列に出すため）
@@ -215,6 +221,7 @@ function buildBoard_() {
       order: r[map.order] === '' ? null : Number(r[map.order]),
       result: result, boardMonth: boardMonth, hidden: hidden, contractId: r[map.contract], insta: insta,
       staffRaw: String(r[map.staff] || '').trim(), // E列そのまま（担当の変更で今の値を出すため）
+      customerNo: r[map.customerNo], meetCount: r[map.meetCount], meetLink: r[map.meetLink],
     };
     Object.keys(COLS).forEach((k) => { c[k] = map[k] == null ? '' : r[map[k]]; });
     Object.assign(c, owners);
@@ -376,12 +383,14 @@ function recordStage_(row, name, stageKey, undo) {
       if (plan < today) today = plan;
       put(PLAN_STAGES[stage.key].col, '');
       const refs = readPlanRefs_(val.planEvents);
+      if (stage.key === 'meeting') markMeetLog_(refs.meeting, '実施');
       delete refs[stage.key]; // カレンダーの予定は実施したものとして残す
       put('planEvents', Object.keys(refs).length ? JSON.stringify(refs) : '');
     }
     const todayText = Utilities.formatDate(today, 'Asia/Tokyo', 'yyyy/MM/dd');
     const setDate = (k, v) => put(k, k === 'proposal' ? (v ? todayText : '') : (v ? today : ''));
     let count = parseInt(val.viewCount, 10) || 0;
+    let mcount = meetCountOf_(val.meetCount, val.meeting);
     let countWarning = '';
 
     if (stage.key === 'viewing') {
@@ -393,6 +402,12 @@ function recordStage_(row, name, stageKey, undo) {
       } catch (e) {
         countWarning = 'O列「内覧回数」のプルダウンに「' + count + '回」が無いため書き込めませんでした（進捗ログには記録済み）';
       }
+    } else if (stage.key === 'meeting') {
+      // 面談も内覧と同じく、押すたびに回数+1（面談日は1回目の日付のまま、面談回数を「2回」のように更新）
+      mcount = Math.max(0, mcount + (undo ? -1 : 1));
+      if (!undo && !val.meeting) setDate('meeting', true);
+      if (undo && mcount === 0) setDate('meeting', false);
+      put('meetCount', mcount ? mcount + '回' : '');
     } else {
       setDate(stage.col, !undo);
     }
@@ -403,16 +418,15 @@ function recordStage_(row, name, stageKey, undo) {
     }
 
     // B列：記録が残っている一番先の段階に合わせる
-    const reached = STAGES.filter((st) => (st.key === 'viewing' ? count > 0 || val.viewing : val[st.col]));
-    const top = reached[reached.length - 1];
-    const status = top ? (top.key === 'viewing' ? '内覧済み（' + Math.max(count, 1) + '回）' : top.status) : '';
+    const reached = STAGES.filter((st) => (st.key === 'viewing' ? count > 0 || val.viewing : st.key === 'meeting' ? mcount > 0 || val.meeting : val[st.col]));
+    const status = stageStatus_(reached[reached.length - 1], count, mcount) || '';
     put('status', status);
     const stamp = updateStamp_();
     put('updated', stamp);
 
     getProgressLogSheet_().appendRow([
       Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm'), name, actualRow,
-      r[map.staff], stage.label,
+      r[map.staff], stage.label + (stage.key === 'meeting' && !undo && mcount > 1 ? '（' + mcount + '回目）' : ''),
       stage.key === 'viewing' ? count : '', undo ? '取消' : '', currentStaffName_() || currentEmail_(),
     ]);
     clearCache_();
@@ -422,7 +436,7 @@ function recordStage_(row, name, stageKey, undo) {
     return {
       row: actualRow, updated: stamp, status: status, warning: countWarning,
       firstCall: r2[map.firstCall], meeting: r2[map.meeting], proposal: r2[map.proposal],
-      viewing: r2[map.viewing], viewCount: r2[map.viewCount], applied: r2[map.applied],
+      viewing: r2[map.viewing], viewCount: r2[map.viewCount], applied: r2[map.applied], meetCount: r2[map.meetCount],
       forecast: r2[map.forecast], result: result,
       planCall: r2[map.planCall], planMeeting: r2[map.planMeeting], planViewing: r2[map.planViewing],
       alertDate: r2[map.alertDate], alertNote: r2[map.alertNote],
@@ -453,17 +467,20 @@ function setPlan(row, name, stageKey, when, minutes) {
   const map = ensureAppColumns_(sheet);
   const actualRow = resolveRow_(sheet, map, row, name);
   const r = sheet.getRange(actualRow, 1, 1, sheet.getLastColumn()).getDisplayValues()[0];
+  const no = customerNoOf_(sheet, map, actualRow, r);
   const refs = readPlanRefs_(r[map.planEvents]);
   deleteAlertEvent_(refs[stageKey]);
-  const event = createCalendarEvent_(alertOwner_(r[map.staff]), ps.title + calendarName_(name), start, end,
-    '顧客：' + name + '\n担当：' + r[map.staff]);
+  if (stageKey === 'meeting') markMeetLog_(refs.meeting, '取消');
+  const event = createPlanEvent_(alertOwner_(r[map.staff]), stageKey, name, no, start, end, r[map.staff]);
   refs[stageKey] = event.ref;
   const text = Utilities.formatDate(start, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm') + '〜' + Utilities.formatDate(end, 'Asia/Tokyo', 'HH:mm');
   const fields = { planEvents: JSON.stringify(refs) };
   fields[ps.col] = text;
+  if (stageKey === 'meeting') fields.meetLink = event.meet || '';
   const res = writeFields_(actualRow, name, fields);
   res[ps.col] = text;
   res.calendar = event.where;
+  if (stageKey === 'meeting') { res.meetLink = fields.meetLink; res.customerNo = no; res.warning = event.warning || ''; }
   return res;
 }
 
@@ -476,11 +493,14 @@ function clearPlan(row, name, stageKey) {
   const actualRow = resolveRow_(sheet, map, row, name);
   const refs = readPlanRefs_(sheet.getRange(actualRow, map.planEvents + 1).getDisplayValue());
   deleteAlertEvent_(refs[stageKey]);
+  if (stageKey === 'meeting') markMeetLog_(refs.meeting, '取消');
   delete refs[stageKey];
   const fields = { planEvents: Object.keys(refs).length ? JSON.stringify(refs) : '' };
   fields[ps.col] = '';
+  if (stageKey === 'meeting') fields.meetLink = '';
   const res = writeFields_(actualRow, name, fields);
   res[ps.col] = '';
+  if (stageKey === 'meeting') res.meetLink = '';
   return res;
 }
 
@@ -515,7 +535,7 @@ function renameCustomer(row, name, newName, kana) {
     try {
       const [calId, eventId] = ref.split('|');
       const ev = CalendarApp.getCalendarById(calId).getEventById(eventId);
-      if (ev) ev.setTitle(ev.getTitle().replace(/^(【[^】]*】).*$/, '$1' + calendarName_(full)));
+      if (ev) ev.setTitle(ev.getTitle().replace(/^(【[^】]*】(?:M\d{4,} )?).*$/, '$1' + calendarName_(full)));
     } catch (e) { /* 消された予定は何もしない */ }
   });
   // 契約進捗の案件のお客様名も合わせる（売上表につなぐときに名前で探すため）
@@ -603,6 +623,8 @@ function moveEventsToOwner_(sheet, map, row, name, r, before, after) {
   const now = new Date();
   const today = Utilities.formatDate(now, 'Asia/Tokyo', 'yyyy-MM-dd');
   let moved = 0;
+  const no = map.customerNo == null ? '' : r[map.customerNo];
+  const fields = {};
   // 初回電話・面談・内覧の予定（列の値「2026-10-25 14:00〜15:30」から、開始と終わりを読む）
   const refs = readPlanRefs_(r[map.planEvents]);
   Object.keys(PLAN_STAGES).forEach((key) => {
@@ -611,17 +633,18 @@ function moveEventsToOwner_(sheet, map, row, name, r, before, after) {
     const m = String(text).match(/〜(\d{2}:\d{2})/);
     const end = m ? parsePlan_(String(text).slice(0, 10) + ' ' + m[1]) : null;
     deleteAlertEvent_(refs[key]);
-    refs[key] = createCalendarEvent_(owner, ps.title + calendarName_(name), start, end && end > start ? end : new Date(start.getTime() + ps.minutes * 60000),
-      '顧客：' + name + '\n担当：' + after).ref;
+    if (key === 'meeting') markMeetLog_(refs.meeting, '取消');
+    const ev = createPlanEvent_(owner, key, name, no, start, end && end > start ? end : new Date(start.getTime() + ps.minutes * 60000), after);
+    refs[key] = ev.ref;
+    if (key === 'meeting') fields.meetLink = ev.meet || '';
     moved++;
   });
-  const fields = {};
   if (moved) fields.planEvents = JSON.stringify(refs);
   // 追客アラート（今日以降のもの）
   const date = r[map.alertDate];
   if (r[map.alertEvent] && /^\d{4}-\d{2}-\d{2}$/.test(date) && date >= today) {
     deleteAlertEvent_(r[map.alertEvent]);
-    fields.alertEvent = createAlertEvent_(owner, name, date, r[map.alertNote]).ref;
+    fields.alertEvent = createAlertEvent_(owner, name, date, r[map.alertNote], no).ref;
     moved++;
   }
   Object.keys(fields).forEach((k) => sheet.getRange(row, map[k] + 1).setValue(fields[k]));
@@ -807,9 +830,9 @@ function reviveCustomer(row, name) {
   const r = sheet.getRange(actualRow, 1, 1, sheet.getLastColumn()).getDisplayValues()[0];
   if (resultOf_(String(r[map.status]).trim()) !== 'lost') throw new Error('失客になっていません（今：' + r[map.status] + '）');
   const count = parseInt(r[map.viewCount], 10) || 0;
-  const reached = STAGES.filter((st) => st.key !== 'apply' && (st.key === 'viewing' ? count > 0 || r[map.viewing] : r[map[st.col]]));
-  const top = reached[reached.length - 1];
-  const status = top ? (top.key === 'viewing' ? '内覧済み（' + Math.max(count, 1) + '回）' : top.status) : '追客';
+  const mcount = meetCountOf_(r[map.meetCount], r[map.meeting]);
+  const reached = STAGES.filter((st) => st.key !== 'apply' && (st.key === 'viewing' ? count > 0 || r[map.viewing] : st.key === 'meeting' ? mcount > 0 || r[map.meeting] : r[map[st.col]]));
+  const status = stageStatus_(reached[reached.length - 1], count, mcount) || '追客';
   const line = '失客から戻す（' + Utilities.formatDate(new Date(), 'Asia/Tokyo', 'MM/dd') + '）';
   const memo = r[map.memo];
   const res = writeFields_(actualRow, name, { status: status, memo: memo ? memo + '\n' + line : line });
@@ -831,7 +854,7 @@ function setAlert(row, name, date, note) {
   const actualRow = resolveRow_(sheet, map, row, name);
   const r = sheet.getRange(actualRow, 1, 1, sheet.getLastColumn()).getDisplayValues()[0];
   deleteAlertEvent_(r[map.alertEvent]);
-  const event = createAlertEvent_(alertOwner_(r[map.staff]), name, date, note);
+  const event = createAlertEvent_(alertOwner_(r[map.staff]), name, date, note, map.customerNo == null ? '' : r[map.customerNo]);
   const res = writeFields_(actualRow, name, { alertDate: date, alertNote: note || '', alertEvent: event.ref });
   res.calendar = event.where;
   return res;
@@ -861,9 +884,9 @@ function alertOwner_(rawStaff) {
  * 担当者のカレンダーに直接予定を作る（担当者が小嶋さんに「予定の変更」権限でカレンダーを共有している場合）。
  * 共有されていなければ、小嶋さんのカレンダーに予定を作って担当者を招待する。
  */
-function createAlertEvent_(owner, name, date, note) {
+function createAlertEvent_(owner, name, date, note, no) {
   const [y, m, d] = date.split('-').map(Number);
-  return createCalendarEvent_(owner, '【追客】' + calendarName_(name), new Date(y, m - 1, d), null, note);
+  return createCalendarEvent_(owner, '【追客】' + eventName_(no, name), new Date(y, m - 1, d), null, note);
 }
 
 /** end が null なら終日の予定 */
@@ -950,6 +973,306 @@ function installAlertTriggers_() {
     .forEach((t) => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger('sendMorningAlerts').timeBased().everyDays(1).atHour(8).inTimezone('Asia/Tokyo').create();
   ScriptApp.newTrigger('sendEveningAlerts').timeBased().everyDays(1).atHour(18).inTimezone('Asia/Tokyo').create();
+}
+
+// ---------- 顧客No・面談の Google Meet・議事録の取り込み ----------
+
+/** 顧客No の列が空の顧客に、上の行から M0001, M0002… と振る（今ある一番大きい番号の次から）。振る人がいなければ何も書かない */
+function assignCustomerNos_(sheet, map) {
+  const n = sheet.getLastRow() - 1;
+  if (n < 1) return;
+  const names = sheet.getRange(2, map.name + 1, n, 1).getDisplayValues();
+  const range = sheet.getRange(2, map.customerNo + 1, n, 1);
+  if (!range.getDisplayValues().some((r, i) => !r[0] && String(names[i][0]).trim())) return;
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(LOCK_WAIT)) return;
+  try {
+    const cur = range.getDisplayValues(); // 待っている間にほかの処理が振っていれば、その番号を使う
+    const re = new RegExp('^' + CUSTOMER_NO_PREFIX + '(\\d+)$');
+    let max = cur.reduce((m, r) => Math.max(m, Number((String(r[0]).match(re) || [])[1]) || 0), 0);
+    const out = cur.map((r, i) => [r[0] || !String(names[i][0]).trim() ? r[0] : CUSTOMER_NO_PREFIX + String(++max).padStart(4, '0')]);
+    range.setValues(out);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** その行の顧客No（まだ無ければ振ってから読む） */
+function customerNoOf_(sheet, map, row, r) {
+  if (r[map.customerNo]) return r[map.customerNo];
+  assignCustomerNos_(sheet, map);
+  return sheet.getRange(row, map.customerNo + 1).getDisplayValue();
+}
+
+/** カレンダーの件名に使う「M0012 山田太郎」 */
+function eventName_(no, name) {
+  return (no ? no + ' ' : '') + calendarName_(name);
+}
+
+/** 面談の回数。面談回数の列ができる前に面談した人（面談日だけ入っている）は1回 */
+function meetCountOf_(text, meetingDate) {
+  return parseInt(text, 10) || (meetingDate ? 1 : 0);
+}
+
+/** B列に入れる段階の名前。内覧は「内覧済み（N回）」、面談は2回目から「カウンセリング面談済み（2回）」 */
+function stageStatus_(top, viewCount, meetCount) {
+  if (!top) return '';
+  if (top.key === 'viewing') return '内覧済み（' + Math.max(viewCount, 1) + '回）';
+  if (top.key === 'meeting' && meetCount > 1) return top.status + '（' + meetCount + '回）';
+  return top.status;
+}
+
+/**
+ * 段階の予定をカレンダーに入れる。件名は「【面談】M0012 山田太郎」。
+ * 面談は Google Meet のリンクも作る（作れなかったらふつうの予定にして warning を返す）。面談は「面談ログ」シートにも残す
+ */
+function createPlanEvent_(owner, stageKey, name, no, start, end, staffRaw) {
+  const ps = PLAN_STAGES[stageKey];
+  const title = ps.title + eventName_(no, name);
+  const note = '顧客：' + name + (no ? '（' + no + '）' : '') + '\n担当：' + staffRaw;
+  if (stageKey !== 'meeting') return createCalendarEvent_(owner, title, start, end, note);
+  let ev;
+  try {
+    ev = createMeetEvent_(owner, title, start, end, note, no);
+  } catch (e) {
+    ev = createCalendarEvent_(owner, title, start, end, note);
+    ev.warning = 'Meet のリンクを作れなかったので、ふつうの予定で入れました（' + e.message + '）';
+  }
+  logMeet_(no, name, start, end, ev);
+  return ev;
+}
+
+/**
+ * Google Meet 付きの予定を作る（Calendar API の高度なサービスを使う）。入れる先の順番は createCalendarEvent_ と同じ：
+ * 専用カレンダー → 担当者のカレンダー → 小嶋さんのカレンダー（担当者を招待）
+ */
+function createMeetEvent_(owner, title, start, end, note, no) {
+  const self = Session.getEffectiveUser().getEmail();
+  const staff = STAFF.find((x) => x.name === owner.name);
+  const color = staff && staff.event ? String(CalendarApp.EventColor[staff.event] || '') : '';
+  const body = {
+    summary: title,
+    description: (note ? note + '\n\n' : '') + '見込みボード：' + ScriptApp.getService().getUrl(),
+    start: { dateTime: start.toISOString(), timeZone: 'Asia/Tokyo' },
+    end: { dateTime: end.toISOString(), timeZone: 'Asia/Tokyo' },
+    conferenceData: { createRequest: { requestId: Utilities.getUuid(), conferenceSolutionKey: { type: 'hangoutsMeet' } } },
+    extendedProperties: { private: { customerNo: no || '', stage: 'meeting' } },
+  };
+  if (/^\d+$/.test(color)) body.colorId = color;
+  const tries = [];
+  if (owner.calendar) tries.push({ cal: owner.calendar, where: owner.name + 'さんの専用カレンダー' });
+  if (owner.email && owner.email !== self) tries.push({ cal: owner.email, where: owner.name + 'さんのカレンダー' });
+  tries.push(owner.email && owner.email !== self
+    ? { cal: 'primary', where: owner.name + 'さんを招待', guest: owner.email }
+    : { cal: 'primary', where: '小嶋さんのカレンダー' });
+  let lastError = null;
+  for (let i = 0; i < tries.length; i++) {
+    const t = tries[i];
+    try {
+      const b = Object.assign({}, body, t.guest ? { attendees: [{ email: t.guest }] } : {});
+      let ev = Calendar.Events.insert(b, t.cal, { conferenceDataVersion: 1, sendUpdates: 'none' });
+      if (!ev.hangoutLink) { Utilities.sleep(1500); ev = Calendar.Events.get(t.cal, ev.id); } // Meet は少し遅れてできることがある
+      const calId = t.cal === 'primary' ? CalendarApp.getDefaultCalendar().getId() : t.cal;
+      return { ref: calId + '|' + ev.iCalUID, where: t.where, meet: ev.hangoutLink || '', calId: calId, eventId: ev.id };
+    } catch (e) {
+      lastError = e; // 書き込めないカレンダーなら次へ
+    }
+  }
+  throw lastError;
+}
+
+// 面談の予定の記録。議事録を取り込むときに、予定と顧客No をここでつなぐ
+const MEET_LOG_SHEET_NAME = '面談ログ';
+const MEET_LOG_HEAD = ['登録日時', '顧客No', '顧客名', '開始', '終了', '予定', 'カレンダーID', '予定ID', 'Meet', '状態', '議事録'];
+const MEET_LOG_COL = MEET_LOG_HEAD.reduce((o, h, i) => { o[h] = i; return o; }, {});
+
+function getMeetLogSheet_() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let sheet = ss.getSheetByName(MEET_LOG_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(MEET_LOG_SHEET_NAME);
+    sheet.appendRow(MEET_LOG_HEAD);
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function logMeet_(no, name, start, end, ev) {
+  getMeetLogSheet_().appendRow([
+    Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm'), no || '', name, start, end,
+    ev.ref, ev.calId || String(ev.ref).split('|')[0], ev.eventId || '', ev.meet || '', '予定', '',
+  ]);
+}
+
+/** 面談の予定の状態を変える（実施・取消）。ref は "カレンダーID|予定のiCalUID" */
+function markMeetLog_(ref, status) {
+  if (!ref) return;
+  const sheet = getMeetLogSheet_();
+  const last = sheet.getLastRow();
+  if (last < 2) return;
+  const refs = sheet.getRange(2, MEET_LOG_COL['予定'] + 1, last - 1, 1).getValues();
+  for (let i = refs.length - 1; i >= 0; i--) {
+    if (refs[i][0] === ref) { sheet.getRange(i + 2, MEET_LOG_COL['状態'] + 1).setValue(status); return; }
+  }
+}
+
+function installMeetTrigger_() {
+  ScriptApp.getProjectTriggers().filter((t) => t.getHandlerFunction() === 'collectMeetNotes').forEach((t) => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('collectMeetNotes').timeBased().everyMinutes(15).create();
+}
+
+/**
+ * 初回に1回だけエディタから実行：顧客No を振る・面談ログシートを作る・議事録の取り込み（15分ごと）を入れる。
+ * 先に「サービス」の ＋ から「Google Calendar API」を追加しておく（無いとここで止まる）
+ */
+function setupMeet() {
+  const sheet = getSheet_();
+  const map = ensureAppColumns_(sheet);
+  assignCustomerNos_(sheet, map);
+  getMeetLogSheet_();
+  Calendar.Events.list('primary', { maxResults: 1 });
+  installMeetTrigger_();
+  clearCache_();
+  Logger.log('顧客No を振りました。Claude の要点メモ：' + (PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY') ? 'APIキーあり' : 'APIキー未設定（スクリプト プロパティ ANTHROPIC_API_KEY）'));
+}
+
+/**
+ * 15分ごと：終わった面談の議事録（Meet の文字起こし・Gemini のメモ）を探して、顧客の議事録フォルダに入れる。
+ * 探し方：①予定に付いているドキュメント ②名前に顧客No が入っているドキュメント（「【面談】M0012 … - Gemini によるメモ」など）
+ * 見つかったら議事録ログに「Meet議事録」として残し、Claude で要点メモを作る。3日たっても無ければ「議事録なし」にする
+ */
+function collectMeetNotes() {
+  const sheet = getMeetLogSheet_();
+  const last = sheet.getLastRow();
+  if (last < 2) return;
+  const rows = sheet.getRange(2, 1, last - 1, MEET_LOG_HEAD.length).getValues();
+  const known = knownNoteFiles_();
+  const now = Date.now(), began = Date.now();
+  for (let i = 0; i < rows.length; i++) {
+    if (Date.now() - began > 4 * 60000) break; // 1回は6分までなので、残りは次の回にする
+    const r = rows[i], col = MEET_LOG_COL;
+    if ((r[col['状態']] !== '予定' && r[col['状態']] !== '実施') || r[col['議事録']]) continue;
+    const end = r[col['終了']] instanceof Date ? r[col['終了']].getTime() : 0;
+    if (!end || end > now) continue;
+    const start = r[col['開始']] instanceof Date ? r[col['開始']] : new Date(end);
+    const docs = findMeetDocs_(r[col['カレンダーID']], r[col['予定ID']], r[col['顧客No']], start).filter((d) => !known[d.id]);
+    if (!docs.length) {
+      if (now - end > 3 * 864e5) sheet.getRange(i + 2, col['状態'] + 1).setValue('議事録なし');
+      continue;
+    }
+    const saved = docs.filter((d) => saveMeetDoc_(r[col['顧客No']], r[col['顧客名']], d));
+    saved.forEach((d) => { known[d.id] = true; });
+    if (saved.length) sheet.getRange(i + 2, col['状態'] + 1, 1, 2).setValues([['取込済', saved.map((d) => d.url).join('\n')]]);
+  }
+}
+
+function knownNoteFiles_() {
+  const sheet = getNotesSheet_();
+  const last = sheet.getLastRow();
+  const out = {};
+  if (last >= 2) sheet.getRange(2, 6, last - 1, 1).getValues().forEach((r) => { if (r[0]) out[r[0]] = true; });
+  return out;
+}
+
+function findMeetDocs_(calId, eventId, no, start) {
+  const out = [];
+  if (calId && eventId) {
+    try {
+      const ev = Calendar.Events.get(calId, eventId);
+      (ev.attachments || []).forEach((a) => {
+        if (a.mimeType === 'application/vnd.google-apps.document' && a.fileId) out.push({ id: a.fileId, title: a.title || 'Meet の議事録', url: a.fileUrl });
+      });
+    } catch (e) { /* 予定が消されていれば下の探し方だけ */ }
+  }
+  if (!out.length && no) {
+    const since = new Date(start.getTime() - 864e5).toISOString();
+    const it = DriveApp.searchFiles("title contains '" + no + "' and mimeType = 'application/vnd.google-apps.document' and modifiedDate > '" + since + "' and trashed = false");
+    while (it.hasNext() && out.length < 5) {
+      const f = it.next();
+      if (/メモ|文字起こし|Notes|Transcript/i.test(f.getName())) out.push({ id: f.getId(), title: f.getName(), url: f.getUrl() });
+    }
+  }
+  return out;
+}
+
+/** 顧客No から今の行を探し、議事録フォルダにショートカットを作って議事録ログに残す（要点メモ付き）。できたら true */
+function saveMeetDoc_(no, name, doc) {
+  const sheet = getSheet_();
+  const map = ensureAppColumns_(sheet);
+  const n = sheet.getLastRow() - 1;
+  const nos = sheet.getRange(2, map.customerNo + 1, n, 1).getDisplayValues();
+  const idx = no ? nos.findIndex((x) => x[0] === no) : -1;
+  if (idx < 0) return false;
+  const row = idx + 2;
+  const curName = sheet.getRange(row, map.name + 1).getDisplayValue().trim() || name;
+  const folderId = ensureCustomerFolder_(row, curName);
+  try { DriveApp.createShortcut(doc.id).moveTo(DriveApp.getFolderById(folderId)); } catch (e) { /* 共有されていなければリンクだけ残す */ }
+  const sum = summarizeDoc_(doc.id);
+  appendNote_(folderId, 'Meet議事録', doc.title, doc.url, doc.id, sum.text || (sum.error ? '（要点：' + sum.error + '）' : ''), 'Meet自動');
+  return true;
+}
+
+/** 画面の「✨要点を作る」：議事録ログのその行に Claude の要点メモを入れる */
+function summarizeNote(row, name, fileId) {
+  const sheet = getSheet_();
+  const map = ensureAppColumns_(sheet);
+  const actualRow = resolveRow_(sheet, map, row, name);
+  const folderId = sheet.getRange(actualRow, map.folder + 1).getDisplayValue();
+  const notes = getNotesSheet_();
+  const last = notes.getLastRow();
+  const v = last < 2 ? [] : notes.getRange(2, 1, last - 1, 6).getValues();
+  const i = v.findIndex((r) => r[0] === folderId && r[5] === fileId);
+  if (i < 0) throw new Error('議事録が見つかりませんでした。画面を再読み込みしてください');
+  const sum = summarizeDoc_(fileId);
+  if (!sum.text) throw new Error(sum.error);
+  notes.getRange(i + 2, 7).setValue(sum.text);
+  return getNotes(actualRow, name);
+}
+
+// Claude で要点メモを作る。APIキーはスクリプト プロパティ ANTHROPIC_API_KEY に入れる（コードには書かない）
+const CLAUDE_MODEL = 'claude-opus-5-5';
+const SUMMARY_PROMPT = [
+  'あなたは不動産仲介会社 Monochro の営業アシスタントです。',
+  'お客様との面談の議事録（Google Meet の文字起こしや Gemini のメモ）を読み、担当者が次の連絡の前に30秒で読める要点メモを日本語で作ってください。',
+  '次の見出しで、それぞれ短い箇条書き（「・」で始める）にしてください。議事録に出てこないことは書かず、分からない項目は「・不明」としてください。',
+  '■ お客様の希望（エリア・予算・間取り・入居時期・こだわり）',
+  '■ 決まったこと',
+  '■ 次にやること（誰が・いつまでに）',
+  '■ 気になる点',
+  '見出しと箇条書き以外の前置きやまとめは書かないでください。',
+].join('\n');
+
+function summarizeDoc_(fileId) {
+  const key = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
+  if (!key) return { error: 'APIキーが未設定です' };
+  let text;
+  try {
+    text = DocumentApp.openById(fileId).getBody().getText().trim();
+  } catch (e) {
+    return { error: '文書を開けませんでした（担当者の「Meet Recordings」フォルダを info@ に共有してください）' };
+  }
+  if (!text) return { error: '文書が空でした' };
+  const res = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
+    method: 'post',
+    contentType: 'application/json',
+    muteHttpExceptions: true,
+    headers: { 'x-api-key': key, 'anthropic-version': '2026-10-21', 'anthropic-beta': 'server-side-fallback-2026-07-01' },
+    payload: JSON.stringify({
+      model: CLAUDE_MODEL,
+      max_tokens: 4000,
+      fallbacks: 'default',
+      output_config: { effort: 'low' },
+      system: SUMMARY_PROMPT,
+      messages: [{ role: 'user', content: '<議事録>\n' + text + '\n</議事録>' }],
+    }),
+  });
+  const code = res.getResponseCode();
+  let body = {};
+  try { body = JSON.parse(res.getContentText()); } catch (e) { /* 下でエラーにする */ }
+  if (code !== 200) return { error: 'Claude API のエラー（' + code + '）' + ((body.error && body.error.message) || '') };
+  if (body.stop_reason === 'refusal') return { error: 'Claude が要点を作れませんでした' };
+  const out = (body.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
+  return out ? { text: out } : { error: '要点が空でした' };
 }
 
 // ---------- 売上 ----------
@@ -1110,7 +1433,7 @@ function getNotes(row, name) {
   const rows = last < 2 ? [] : notesSheet.getRange(2, 1, last - 1, 8).getDisplayValues();
   const notes = rows
     .filter((r) => r[0] === folderId)
-    .map((r) => ({ date: r[1], type: r[2], title: r[3], url: r[4], memo: r[6], by: r[7] }))
+    .map((r) => ({ date: r[1], type: r[2], title: r[3], url: r[4], fileId: r[5], memo: r[6], by: r[7] }))
     .reverse();
   return { folderUrl: 'https://drive.google.com/drive/folders/' + folderId, notes: notes };
 }
@@ -1169,11 +1492,11 @@ function ensureCustomerFolder_(row, name) {
   }
 }
 
-function appendNote_(folderId, type, title, url, fileId, memo) {
+function appendNote_(folderId, type, title, url, fileId, memo, by) {
   getNotesSheet_().appendRow([
     folderId,
     Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm'),
-    type, title, url, fileId, memo || '', currentStaffName_() || currentEmail_(),
+    type, title, url, fileId, memo || '', by || currentStaffName_() || currentEmail_(),
   ]);
   clearCache_();
 }

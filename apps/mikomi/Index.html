@@ -235,6 +235,11 @@
   .moves .chip.on { pointer-events: none; }
   .note { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; font-size: 13px; }
   .note .meta { color: var(--sub); font-size: 11px; }
+  .note .memo { white-space: pre-wrap; margin-top: 4px; }
+  .note .sumbtn { margin-top: 6px; font-size: 12px; }
+  .cno { font-size: 10px; color: var(--sub); font-weight: 400; margin-left: 6px; font-variant-numeric: tabular-nums; }
+  .meetbox { margin-top: 10px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; gap: 6px; }
+  .meetbox a { color: var(--accent); word-break: break-all; font-size: 13px; }
   .note a { color: var(--accent); }
   .addbar { display: flex; gap: 6px; flex-wrap: wrap; }
   .addform { margin-top: 8px; display: none; gap: 6px; flex-direction: column; }
@@ -316,7 +321,7 @@
     <span class="sync" id="sync" hidden>前回の数字を表示中・最新を確認しています…</span>
     <button class="icon-btn" id="reload" title="再読み込み">↻</button>
   </div>
-  <input class="search" id="q" type="search" placeholder="顧客名・物件名・メモで検索">
+  <input class="search" id="q" type="search" placeholder="顧客No・顧客名・物件名・メモで検索">
   <div class="views" id="views">
     <button data-view="board" class="on">見込みボード</button>
     <button data-view="analysis">成績ダッシュボード</button>
@@ -557,7 +562,7 @@ function visible(c) {
   if (!inView(c)) return false;
   if (!state.q) return true;
   const q = state.q.toLowerCase();
-  return [c.name, c.property, c.memo, c.status, c.moveTime].some((v) => String(v || '').toLowerCase().includes(q));
+  return [c.customerNo, c.name, c.property, c.memo, c.status, c.moveTime].some((v) => String(v || '').toLowerCase().includes(q));
 }
 
 function renderChips() {
@@ -892,7 +897,7 @@ function cardHtml(c) {
   const ctDone = c.result === 'won' && (contractState(c) || {}).cls === 'done', sc = ctDone ? staffColor(c.staff) || '#e2b007' : '';
   return '<div class="card' + (c.result ? ' ' + c.result : '') + (ctDone ? ' ctdone' : '') + (state.who === INSTA && c.insta === 'sub' ? ' insta-sub' : '') + '" data-row="' + c.row + '"' + (ctDone ? ' style="--sc:' + sc + ';--ink:' + inkOn(sc) + '"' : '') + '>' +
     (state.selecting ? '' : '<button class="xbtn" data-hide="' + c.row + '" title="ボードから外す" aria-label="ボードから外す">×</button>') +
-    '<div class="nm">' + (c.result === 'won' ? '🏆 ' : '') + esc(nm) + (kana ? '<span class="kana">' + esc(kana) + '</span>' : '') +
+    '<div class="nm">' + (c.result === 'won' ? '🏆 ' : '') + esc(nm) + (kana ? '<span class="kana">' + esc(kana) + '</span>' : '') + (c.customerNo ? '<span class="cno">' + esc(c.customerNo) + '</span>' : '') +
       (c.result === 'won' ? '<span class="ribbon">' + (ctDone ? '契約完了' : '成約') + '</span>' : c.result === 'lost' ? '<span class="ribbon">失客</span>' : '') + '</div>' +
     '<div class="row">' +
       (overdue ? '<span class="tag over">期限切れ ' + monthLabel(c.forecast) + '</span>' : '') +
@@ -1022,18 +1027,22 @@ const STAGE_FIELD = { call: 'firstCall', meeting: 'meeting', proposal: 'proposal
 
 // 予定を入れられる段階（Code.gs の PLAN_STAGES と同じ）
 const PLAN_FIELD = { call: 'planCall', meeting: 'planMeeting', viewing: 'planViewing' };
+// 何回でも記録できる段階（＋1回）と回数の列
+const COUNT_FIELD = { viewing: 'viewCount', meeting: 'meetCount' };
+/** 段階の回数。回数の列が空でも日付があれば1回（面談回数の列ができる前の面談） */
+function stageCount(c, key) { return COUNT_FIELD[key] ? parseInt(c[COUNT_FIELD[key]], 10) || (c[STAGE_FIELD[key]] ? 1 : 0) : 0; }
 
 function stageButtonHtml(c, st) {
   const date = c[STAGE_FIELD[st.key]];
-  const count = parseInt(c.viewCount, 10) || 0;
-  const done = st.key === 'viewing' ? count > 0 || !!date : !!date;
+  const count = stageCount(c, st.key);
+  const done = COUNT_FIELD[st.key] ? count > 0 : !!date;
   const plan = PLAN_FIELD[st.key] ? c[PLAN_FIELD[st.key]] : '';
-  let sub = st.key === 'viewing' && done ? (count || 1) + '回' + (date ? '・初回' + shortDate(date) : '') : done ? shortDate(date) : '';
+  let sub = done && (st.key === 'viewing' || count > 1) ? count + '回' + (date ? '・初回' + shortDate(date) : '') : done ? shortDate(date) : '';
   if (plan) sub = (sub ? sub + '・' : '') + '予定 ' + planLabel(plan);
   const cls = done ? ' done' : plan ? ' planned' + (isPast(plan) ? ' late' : '') : '';
   return '<div class="stage' + cls + '"><button data-stage="' + st.key + '">' + (done ? '✓ ' : plan ? '📅 ' : '') + esc(st.label) +
     (sub ? '<small>' + esc(sub) + '</small>' : '') + '</button>' +
-    (st.key === 'viewing' && done ? '<button class="plus" data-stage="viewing" data-more="1">＋1回</button>' : '') + '</div>';
+    (COUNT_FIELD[st.key] && done ? '<button class="plus" data-stage="' + st.key + '" data-more="1">＋1回</button>' : '') + '</div>';
 }
 function planLabel(p) { const m = String(p).match(/-(\d{2})-(\d{2})[ T](\d{2}:\d{2})(〜\d{2}:\d{2})?/); return m ? Number(m[1]) + '/' + Number(m[2]) + ' ' + m[3] + (m[4] || '') : p; }
 // 予定の所要時間（分）。"14:00〜15:30" から計算、無ければ段階の初期値
@@ -1069,7 +1078,7 @@ function openPlanBox(key) {
     .map((m) => '<option value="' + m + '"' + (m === mins ? ' selected' : '') + '>' + durationLabel(m) + '</option>').join('');
   const doneDate = plan && isPast(plan) ? planLabel(plan).split(' ')[0] : '今日';
   box.dataset.key = key;
-  box.innerHTML = '<div class="pb-title">' + esc(st.label) + (key === 'viewing' && (parseInt(c.viewCount, 10) || 0) ? '（' + ((parseInt(c.viewCount, 10) || 0) + 1) + '回目）' : '') + '</div>' +
+  box.innerHTML = '<div class="pb-title">' + esc(st.label) + (stageCount(c, key) ? '（' + (stageCount(c, key) + 1) + '回目）' : '') + '</div>' +
     '<button class="btn" data-plan-act="done">実施した（' + esc(doneDate) + 'で記録）</button>' +
     '<div class="pb-grid">' +
       '<label for="planDay">日付</label>' +
@@ -1084,7 +1093,8 @@ function openPlanBox(key) {
     '</div>' +
     '<button class="btn ghost" data-plan-act="save">' + (plan ? '予定を変更' : '予定を入れる') + '</button>' +
     (plan ? '<button class="btn ghost" data-plan-act="clear">予定を取り消す</button>' : '') +
-    '<div class="hint">予定は分析に数えません。予定を入れると、開始時間から所要時間の分だけ担当者のGoogleカレンダーに入ります。「実施した」を押したときに実施として記録します。</div>';
+    '<div class="hint">予定は分析に数えません。予定を入れると、開始時間から所要時間の分だけ担当者のGoogleカレンダーに入ります（件名に顧客Noが入ります）。' +
+      (key === 'meeting' ? '面談は Google Meet のリンクも作ります。' : '') + '「実施した」を押したときに実施として記録します。</div>';
   box.hidden = false;
   box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
@@ -1118,9 +1128,33 @@ function parseTimeInput(text) {
   return String(h).padStart(2, '0') + ':' + String(mi).padStart(2, '0');
 }
 
+// 面談の Google Meet：リンクと、お客様に送る案内文をワンクリックでコピー
+function meetBoxHtml(c) {
+  if (!c.meetLink) return '';
+  return '<div class="meetbox"><div class="lbl">🎥 面談の Google Meet' + (c.planMeeting ? '（' + esc(planLabel(c.planMeeting)) + '）' : '') + '</div>' +
+    '<a href="' + esc(c.meetLink) + '" target="_blank" rel="noopener">' + esc(c.meetLink) + '</a>' +
+    '<div class="moves"><button class="chip" id="meetCopy">リンクをコピー</button><button class="chip" id="meetGuide">案内文をコピー</button></div></div>';
+}
+function meetGuideText(c) {
+  const [nm] = splitName(c.name);
+  const d = planDate(c.planMeeting), endM = String(c.planMeeting || '').match(/〜(\d{2}:\d{2})/);
+  const when = d ? (d.getMonth() + 1) + '月' + d.getDate() + '日（' + WEEK[d.getDay()] + '）' + c.planMeeting.slice(11, 16) + (endM ? '〜' + endM[1] : '') : '';
+  return nm + '様\n\nお世話になっております。Monochroの' + short(c.staff) + 'です。\nオンライン面談のご案内をお送りします。\n\n' +
+    (when ? '■日時：' + when + '\n' : '') + '■方法：Google Meet（オンライン）\n■参加URL：' + c.meetLink + '\n\n' +
+    'お時間になりましたら、上のURLからご参加ください。\nスマートフォンの場合は「Google Meet」アプリから参加いただけます。\n当日はどうぞよろしくお願いいたします。';
+}
+async function copyText(text, done) {
+  try { await navigator.clipboard.writeText(text); }
+  catch (e) { // 埋め込み先でクリップボードが使えないときの予備
+    const t = document.createElement('textarea'); t.value = text; t.style.position = 'fixed'; t.style.opacity = '0';
+    document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove();
+  }
+  toast(done);
+}
+
 async function planAction(act) {
   const c = current, key = document.getElementById('planBox').dataset.key;
-  if (act === 'done') return pressStage(key, key === 'viewing', true);
+  if (act === 'done') return pressStage(key, !!COUNT_FIELD[key], true);
   try {
     let res;
     if (act === 'save') {
@@ -1136,26 +1170,26 @@ async function planAction(act) {
     }
     Object.assign(c, res);
     render(); openSheet(c.row);
-    toast(act === 'save' ? '予定を入れました（' + res.calendar + '）' : '予定を取り消しました');
+    toast(res.warning || (act === 'save' ? '予定を入れました（' + res.calendar + (res.meetLink ? '・Meet のリンクあり' : '') + '）' : '予定を取り消しました'));
   } catch (e) { toast('保存できませんでした：' + e.message); }
 }
 function shortDate(v) { const m = String(v || '').match(/(\d{1,2})\/(\d{1,2})$/); return m ? Number(m[1]) + '/' + Number(m[2]) : String(v || ''); }
 
 async function pressStage(key, more, fromBox) {
   const c = current, st = state.stages.find((x) => x.key === key);
-  const date = c[STAGE_FIELD[key]], count = parseInt(c.viewCount, 10) || 0;
-  const done = key === 'viewing' ? count > 0 || !!date : !!date;
-  // 予定を入れられる段階は、まだ実施していなければ（内覧は＋1回でも）「予定／実施」を選ぶ
+  const date = c[STAGE_FIELD[key]];
+  const done = COUNT_FIELD[key] ? stageCount(c, key) > 0 : !!date;
+  // 予定を入れられる段階は、まだ実施していなければ（面談・内覧は＋1回でも）「予定／実施」を選ぶ
   if (!fromBox && PLAN_FIELD[key] && (!done || more)) return openPlanBox(key);
   const undo = done && !more;
-  if (undo && !confirm('「' + st.label + '」' + (key === 'viewing' ? 'を1回分' : 'の記録を') + '取り消しますか？')) return;
+  if (undo && !confirm('「' + st.label + '」' + (COUNT_FIELD[key] ? 'を1回分' : 'の記録を') + '取り消しますか？')) return;
   if (key === 'apply' && !undo) return winCase(c);
   try {
     const res = await api('recordStage', c.row, c.name, key, undo);
     Object.assign(c, res);
     render(); openSheet(c.row);
     if (key === 'apply' && !undo) { if (res.contractId) loadContracts(); if (res.warning) toast(res.warning); return celebrate(c); }
-    toast(res.warning || (st.label + (undo ? 'を取り消しました' : (key === 'viewing' ? '（' + (parseInt(res.viewCount, 10) || '') + '回目）' : '') + 'を記録しました')));
+    toast(res.warning || (st.label + (undo ? 'を取り消しました' : (COUNT_FIELD[key] ? '（' + (stageCount(c, key) || '') + '回目）' : '') + 'を記録しました')));
   } catch (e) { toast('記録できませんでした：' + e.message); }
 }
 
@@ -1269,7 +1303,7 @@ function openSheet(row) {
     ['入居日', c.moveIn], ['最終更新', c.updated]].filter((x) => x[1]);
 
   document.getElementById('sheet').innerHTML =
-    '<div style="display:flex;align-items:start;gap:8px"><div style="flex:1;min-width:0"><h2>' + esc(nm) + '</h2><div class="sub">' + esc(kana) + '　シート ' + c.row + '行目' +
+    '<div style="display:flex;align-items:start;gap:8px"><div style="flex:1;min-width:0"><h2>' + esc(nm) + '</h2><div class="sub">' + (c.customerNo ? '<b>' + esc(c.customerNo) + '</b>　' : '') + esc(kana) + '　シート ' + c.row + '行目' +
       '　<button class="linkbtn" id="renameOpen">名前を直す</button></div></div>' +
     '<button class="icon-btn" id="close">✕</button></div>' +
     '<div class="renamebox" id="renameBox" hidden>' +
@@ -1286,6 +1320,7 @@ function openSheet(row) {
     '<div class="sec"><div class="lbl">進捗（初回電話・面談・内覧は予定も入れられます。記録済みをもう一度押すと取り消し）　今：<b>' + esc(statusLabel(c.status) || '—') + '</b></div>' +
       '<div class="stages">' + state.stages.map((st) => stageButtonHtml(c, st)).join('') + '</div>' +
       '<div class="planbox" id="planBox" hidden></div>' +
+      meetBoxHtml(c) +
       '<div class="moves" style="margin-top:8px">' + state.statusButtons.map((b) =>
         '<button class="chip' + (c.status === b ? ' on' : '') + '" data-status="' + esc(b) + '">' + esc(b) + '</button>').join('') +
         // 失客も同じ並びに。失客の人は「失客から戻す」
@@ -1333,8 +1368,17 @@ function renderNotes(res) {
   document.getElementById('notes').innerHTML = (res.notes.length ? res.notes.map((n) =>
     '<div class="note"><div class="meta">' + esc(n.date) + '・' + esc(n.type) + '・' + esc(n.by) + '</div>' +
     (n.url ? '<a href="' + esc(n.url) + '" target="_blank" rel="noopener">' + esc(n.title || n.url) + '</a>' : '') +
-    (n.memo ? '<div>' + esc(n.memo) + '</div>' : '') + '</div>').join('') : 'まだありません') +
+    (n.memo ? '<div class="memo">' + esc(n.memo) + '</div>' : '') +
+    (n.fileId && /docs\.google\.com\/document/.test(n.url) && (!n.memo || /^（要点：/.test(n.memo))
+      ? '<button class="btn ghost sumbtn" data-summarize="' + esc(n.fileId) + '">✨ Claude で要点を作る</button>' : '') + '</div>').join('') : 'まだありません') +
     (res.folderUrl ? '<div style="margin-top:6px"><a href="' + esc(res.folderUrl) + '" target="_blank" rel="noopener" style="color:var(--accent);font-size:12px">Driveフォルダを開く</a></div>' : '');
+}
+
+async function summarizeNote(fileId, btn) {
+  const c = current;
+  btn.disabled = true; btn.textContent = '要点を作成中…（30秒ほど）';
+  try { renderNotes(await api('summarizeNote', c.row, c.name, fileId)); toast('要点メモを作りました'); }
+  catch (e) { btn.disabled = false; btn.textContent = '✨ Claude で要点を作る'; toast('作れませんでした：' + e.message); }
 }
 
 function showAddForm(kind) {
@@ -1484,6 +1528,9 @@ document.getElementById('sheet').addEventListener('click', (e) => {
   if (e.target.id === 'markLost') return loseCase();
   if (e.target.id === 'markArchive') return archiveCase();
   if (e.target.id === 'aSubmit') return submitAdd();
+  if (e.target.id === 'meetCopy' && current) return copyText(current.meetLink, 'Meet のリンクをコピーしました');
+  if (e.target.id === 'meetGuide' && current) return copyText(meetGuideText(current), '案内文をコピーしました（LINE などに貼り付けてください）');
+  const sb = e.target.closest('[data-summarize]'); if (sb) return summarizeNote(sb.dataset.summarize, sb);
   if (e.target.id === 'aCancel') { document.getElementById('addForm').style.display = 'none'; return; }
   const add = e.target.closest('[data-add]'); if (add) return showAddForm(add.dataset.add);
   const mv = e.target.closest('[data-move]');
