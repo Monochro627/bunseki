@@ -209,6 +209,10 @@ td small{color:var(--faint)}
 .legend{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11.5px;color:var(--muted);margin:2px 0 4px}
 .legend span{display:inline-flex;align-items:center;gap:5px}
 .legend i{width:10px;height:10px;border-radius:2px}
+.ml-ctl{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 8px}
+.ml-ctl .seg{flex-wrap:wrap}
+.ml-legend button{border:0;background:none;display:inline-flex;align-items:center;gap:5px;font:inherit;color:inherit;cursor:pointer;padding:3px 2px}
+.ml-legend button[aria-pressed="false"]{opacity:.35;text-decoration:line-through}
 .mg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
 @media (max-width:760px){.mg{grid-template-columns:1fr}}
 .mg h4{margin:0 0 2px;font-size:12px;color:var(--muted);font-weight:600}
@@ -1594,7 +1598,62 @@ const INTRO_TYPES=[
   ['shinkiIntro','新規人脈による紹介','#c0ca33'],['custIntro','既存顧客による紹介','#fb8c00'],['custRepeat','既存顧客のリピート','#e8590c'],
   ['instaIntro','インスタ顧客による紹介','#9c27b0'],['instaRepeatIntro','インスタ顧客によるリピート紹介','#e91e63'],['kobe','神戸アカによる集客','#2e7d32'],
 ];
+// 月別推移：選んでいる期・数字・消している担当（見ている人のブラウザに保存）
+let mlKi=Number(store.get('ml.ki'))||0,mlMetric=store.get('ml.metric')||'rev',mlHide=[];
+try{mlHide=JSON.parse(store.get('ml.hide')||'[]')}catch(e){}
+const ML_METRICS=[['rev','売上',true],['app','申込件数'],['intro','紹介数'],['tate','縦掘り数'],['kuchikomi','口コミ']];
+const ML_ICON={rev:'rev',app:'app',intro:'intro',tate:'intro',kuchikomi:'follow'};
+// 積み上げ縦棒の上に月の合計を書く（Chart.js は options の中の関数を自分で呼んでしまうので、書き方は引数で渡す）
+const colTotals=o=>({id:'colTotals',afterDatasetsDraw(chart){
+  const {ctx}=chart,n=chart.data.labels.length,tot=Array(n).fill(0);
+  chart.data.datasets.forEach((ds,di)=>{if(chart.isDatasetVisible(di))ds.data.forEach((v,i)=>{tot[i]+=v||0})});
+  ctx.save();ctx.textAlign='center';ctx.textBaseline='bottom';ctx.font=`700 11.5px ${o.disp}`;ctx.fillStyle=o.fg;
+  tot.forEach((v,i)=>{if(v)ctx.fillText(o.fmt(v),chart.scales.x.getPixelForValue(i),chart.scales.y.getPixelForValue(v)-4)});
+  ctx.restore()}});
 const GEN_PAGES={
+  monthly:{eyebrow:'推移',title:'月別推移',period:false,who:false,
+    lede:'期（4月〜3月）を選ぶと、月ごとの数字を担当ごとに積み上げた縦棒で見られます。棒の上は月の合計です。下の担当の名前を押すと、その人を消したり出したりできます。',
+    render({names,main}){
+      const fl=fiscalList();if(!fl.some(f=>f.n===mlKi))mlKi=fl[fl.length-1].n;
+      const F=fl.find(f=>f.n===mlKi),M=ML_METRICS.find(m=>m[0]===mlMetric)||ML_METRICS[0],k=M[0],ki=SC.keys.indexOf(k);
+      const months=[];{let [y,m]=F.from.split('/').map(Number);for(let g=0;g<24;g++){const ym=y+'/'+String(m).padStart(2,'0');months.push(ym);if(ym>=F.to)break;if(++m>12){m=1;y++}}}
+      const val={};names.forEach(n=>{val[n]=months.map(()=>0)});
+      SC.rows.forEach(r=>{const i=months.indexOf(r[0]);if(i<0||!val[r[1]])return;val[r[1]][i]+=r[ki+2]||0});
+      const shown=names.filter(n=>!mlHide.includes(n)),fmt=M[2]?fmtMan:(v=>Math.round(v).toLocaleString('ja-JP')),unit=M[2]?'':'件';
+      const tot=months.map((_,i)=>shown.reduce((a,n)=>a+val[n][i],0)),sum=tot.reduce((a,b)=>a+b,0);
+      const passed=months.filter(ym=>ym<=SC.partial).length||1,best=tot.indexOf(Math.max(...tot));
+      const per=shown.map(n=>[n,val[n].reduce((a,b)=>a+b,0)]).sort((a,b)=>b[1]-a[1]);
+      const mlab=ym=>Number(ym.slice(5))+'月';
+      document.getElementById('g-title').textContent=F.l+'の ';
+      document.getElementById('g-kpis').innerHTML=kpiHtml([
+        [F.l+'の'+M[1],fmt(sum),unit],['月平均'+(F.partial?'（今月まで）':''),fmt(sum/passed),unit],
+        ['いちばん多い月',sum?mlab(months[best])+' '+fmt(tot[best])+unit:'—',''],['いちばん多い担当',per[0]&&per[0][1]?short(per[0][0])+' '+fmt(per[0][1])+unit:'—','']]);
+      const id='ml-'+Math.random().toString(36).slice(2,8),sec=document.createElement('section');sec.className='card sc';
+      sec.innerHTML=`<div class="sc-head"><div><h3>${icon(ML_ICON[k]||'rev')}月別の${esc(M[1])}<small style="font-weight:400;color:var(--muted);margin-left:6px">担当ごとの積み上げ</small></h3><p>棒にのせると担当ごとの数と月の合計が出ます${F.partial?'。今月は月の途中の数字です':''}</p></div></div>
+        <div class="ml-ctl"><div class="seg" role="group" aria-label="期">${fl.map(f=>`<button data-mlki="${f.n}" aria-pressed="${f.n===mlKi}">${f.l}${f.partial?'（今期）':''}</button>`).join('')}</div>
+          <div class="seg" role="group" aria-label="数字">${ML_METRICS.map(m=>`<button data-mlm="${m[0]}" aria-pressed="${m[0]===k}">${m[1]}</button>`).join('')}</div></div>
+        <div class="legend ml-legend">${names.map(n=>`<button data-mlh="${esc(n)}" aria-pressed="${!mlHide.includes(n)}" title="押すと消す／出す"><i style="background:${colorsFor(n,0).fill}"></i>${esc(short(n))}</button>`).join('')}</div>
+        <div class="canvas" style="height:340px"><canvas id="${id}" role="img" aria-label="月別の${esc(M[1])}"></canvas></div>`;
+      sec.onclick=e=>{
+        const a=e.target.closest('[data-mlki]'),b=e.target.closest('[data-mlm]'),h=e.target.closest('[data-mlh]');
+        if(a){mlKi=Number(a.dataset.mlki);store.set('ml.ki',String(mlKi))}
+        else if(b){mlMetric=b.dataset.mlm;store.set('ml.metric',mlMetric)}
+        else if(h){const n=h.dataset.mlh;mlHide=mlHide.includes(n)?mlHide.filter(x=>x!==n):mlHide.concat([n]);if(mlHide.length>=names.length)mlHide=[];store.set('ml.hide',JSON.stringify(mlHide))}
+        else return;
+        RERENDER();
+      };
+      document.getElementById(addSection(main,'one')).appendChild(sec);
+      const th=scTheme();
+      scCharts.push(lazyChart(document.getElementById(id),{type:'bar',plugins:[colTotals({fg:th.fg,disp:th.disp,fmt})],
+        data:{labels:months.map(ym=>mlab(ym)+(ym===SC.partial?'（途中）':'')),datasets:shown.map(n=>({label:short(n),data:val[n],backgroundColor:colorsFor(n,0).fill,borderColor:th.surf,borderWidth:{top:1},borderRadius:0,maxBarThickness:46}))},
+        options:{responsive:true,maintainAspectRatio:false,animation:{duration:300},layout:{padding:{top:20}},
+          plugins:{legend:{display:false},
+            tooltip:{mode:'index',backgroundColor:th.surf,titleColor:th.fg,bodyColor:th.fg,footerColor:th.fg,borderColor:th.grid,borderWidth:1,padding:10,cornerRadius:4,filter:it=>it.raw>0,
+              callbacks:{label:c=>' '+c.dataset.label+'：'+fmt(c.raw)+unit,footer:it=>'合計：'+fmt(it.reduce((a,x)=>a+x.raw,0))+unit}}},
+          scales:{x:{stacked:true,grid:{display:false},border:{display:false},ticks:{color:th.fg,font:{size:11.5}}},
+            y:{stacked:true,beginAtZero:true,grid:{color:th.grid,drawTicks:false},border:{display:false},ticks:{color:th.faint,maxTicksLimit:5,font:{size:11},callback:v=>fmt(v)}}}}}));
+      document.getElementById('g-foot').textContent='数字は「★紹介分析データ用（新）」の8名の分（インスタ等の行は入りません）。売上＝売上、申込件数＝総申込数、紹介数＝総紹介数、縦掘り数＝縦掘り合計、口コミ＝口コミの列。期は4月〜3月（1期目は 2022/01〜2023/03）。';
+    }},
   person:{eyebrow:'担当者シート',title:'成績シート',period:true,who:true,noAll:true,def:'cur',
     lede:'担当を選ぶと、その人の成績・予算・成約率・紹介・入社年次・期ごとの推移を1枚で見られます。順位と平均は8名の中での比べです。',
     render({from,to,who,names,main,label}){
@@ -1854,7 +1913,7 @@ function prefetchRest(){
 /* ================= ページの切り替え ================= */
 const STARTERS={person:async()=>{const [,nj]=await Promise.all([loadScoreData(),loadNenjiData(),loadPromo()]);buildSeries(nj);mountGen('person',GEN_PAGES.person)},
   funnel:startGen('funnel'),score:()=>startScore('score'),budget:startBudget,promo:startPromo,nenji:startNenji,
-  rate:startGen('rate'),intro:startGen('intro'),sale:startGen('sale'),mgrowth:startGen('mgrowth'),cgrowth:startGen('cgrowth')};
+  rate:startGen('rate'),intro:startGen('intro'),monthly:startGen('monthly'),sale:startGen('sale'),mgrowth:startGen('mgrowth'),cgrowth:startGen('cgrowth')};
 const NEEDS={nenji:[loadNenjiData],person:[loadScoreData,loadNenjiData,loadPromo],funnel:[loadScoreData,loadFunnel],promo:[loadScoreData,loadPromo]}; // ほかのページは成績のデータだけ
 async function goPage(key){
   if(!STARTERS[key])key=PAGES[0].key;
