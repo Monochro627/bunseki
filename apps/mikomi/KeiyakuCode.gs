@@ -222,11 +222,9 @@ function scanTab_(sh, deals, quiet, fromRow, toRow) {
       }
       continue;
     }
-    // 名前の後ろに顧客No を付けて、売上表でも番号が分かるようにする（顧客No だけ書いたときは、お客様名に置き換える）
-    let text = String(names[i][0]).trim();
-    const no = deal['顧客No'];
+    // 名前のセルの文字はそのまま（リンクで顧客No とつながる）。顧客No だけ書いたときは、お客様名に置き換える
+    let text = String(names[i][0]);
     if (noHit && text.replace(CUSTOMER_NO_RE, '').trim() === '') text = salesName_(deal['お客様名']);
-    if (no && text.indexOf(no) < 0) text = text.replace(CUSTOMER_NO_RE, '').trim() + ' ' + no;
     const url = CONFIG.WEB_APP_URL + '?id=' + deal['案件ID'];
     cell.setRichTextValue(SpreadsheetApp.newRichTextValue().setText(text).setLinkUrl(url).build());
     if (String(bgs[i][0]).toLowerCase() === NO_DEAL_COLOR) cell.clearNote();
