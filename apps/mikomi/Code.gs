@@ -1855,7 +1855,7 @@ render();load(false);
 // 契約進捗DB（契約進捗アプリのデータのスプレッドシート）。契約進捗DBを開いたときのURLの /d/ と /edit の間を貼る
 const CONTRACT_DB_ID = '1JoRN8JFn1WG2n2vCOJsdJ796CYK1_n0IMadmFnNJs3k';
 const CONTRACT_APP_URL = 'https://script.google.com/a/macros/monochro-inc.com/s/AKfycbwJnqpysI8KL_BsuzDaL2N1ooBBFLtQhxT0e4cVRjEwMEB_Xz0EaGde_STwbfn2Pr0oXw/exec';
-const CONTRACT_CACHE_KEY = 'contract_v1';
+const CONTRACT_CACHE_KEY = 'contract_v2';
 // マニュアル（新人用）のアプリ。上のタブ「📖 マニュアル」で別のタブに開く。空ならタブを出さない
 const MANUAL_APP_URL = 'https://script.google.com/a/macros/monochro-inc.com/s/AKfycbzMAYjG3jPmJq2Nr7NeqAUU5ZuaomuDbDA5cBVwbckjk-35joDFOQPuW__aW-7w0Oe9/exec';
 const CONTRACT_MODE_LIST = { '対面': '対面・郵送', '郵送': '対面・郵送', '電子': '電子' };
@@ -1976,6 +1976,13 @@ function getContractProgress() {
   const ss = contractDb_();
   const items = readContractSheet_(ss, '項目マスタ').filter((i) => i['有効'] !== false && i['種類'] !== '注意');
   const checks = readContractSheet_(ss, 'チェック').reduce((o, c) => { (o[c['案件ID']] = o[c['案件ID']] || {})[c['項目ID']] = c['状態']; return o; }, {});
+  // 案件ごとのいちばん新しいメモ（契約進捗の「面談・メモ」。下の行ほど新しい）。見込みボードの顧客ページに出す
+  const memos = {};
+  readContractSheet_(ss, 'メモ').forEach((n) => {
+    if (!n['案件ID'] || !n['内容']) return;
+    const at = n['日時'] && n['日時'].getTime ? Utilities.formatDate(n['日時'], 'Asia/Tokyo', 'M/d HH:mm') : '';
+    memos[n['案件ID']] = { text: String(n['内容']).slice(0, 300), at: at, by: n['記録者'] || '' };
+  });
   readContractSheet_(ss, '案件').forEach((d) => {
     const id = d['案件ID'];
     if (!id) return;
@@ -1990,7 +1997,7 @@ function getContractProgress() {
     });
     const last = d['最終活動'];
     out.deals[id] = { done: done, total: total, status: d['状態'], phase: phase,
-      idle: last && last.getTime ? Math.floor((Date.now() - last.getTime()) / 36e5) : 0 };
+      idle: last && last.getTime ? Math.floor((Date.now() - last.getTime()) / 36e5) : 0, memo: memos[id] || null };
   });
   try { cache.put(CONTRACT_CACHE_KEY, JSON.stringify(out), 300); } catch (e) { /* 大きすぎてもそのまま返す */ }
   return out;

@@ -236,6 +236,7 @@
   .note { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; font-size: 13px; }
   .note .meta { color: var(--sub); font-size: 11px; }
   .note .memo { white-space: pre-wrap; margin-top: 4px; }
+  .ctmemo { margin-top: 8px; }
   .note .sumbtn { display: block; margin-top: 6px; font-size: 12px; }
   .cno { font-size: 10px; color: var(--sub); font-weight: 400; margin-left: 6px; font-variant-numeric: tabular-nums; }
   .meetbox { margin-top: 10px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; gap: 6px; }
@@ -475,8 +476,11 @@ function contractState(c) {
   if (p.idle >= 48) return { cls: 'bad', text: '契約 ' + p.done + '/' + p.total + '・' + Math.floor(p.idle / 24) + '日動きなし' };
   return { cls: '', text: '契約 ' + p.done + '/' + p.total + (p.phase ? '・' + p.phase : '') };
 }
+// 申込みのあとの段階（B列）。成約ボタンを押していなくても、契約進捗の欄とタグを出す（シートは書き換えない）
+const AFTER_APPLY = ['審査中', '契約書類待ち', '契約手続調整', '鍵待ち', '契約書控え待ち', '広告料入金待ち', '定期健診'];
+function isAfterApply(c) { return !c.result && AFTER_APPLY.some((s) => String(c.status || '').indexOf(s) === 0); }
 function contractTag(c) {
-  if (c.result !== 'won' || !CONTRACT_URL) return '';
+  if ((c.result !== 'won' && !isAfterApply(c)) || !CONTRACT_URL) return '';
   const s = contractState(c);
   return s ? '<span class="ctag ' + s.cls + '">📝 ' + esc(s.text) + '</span>' : '';
 }
@@ -486,9 +490,11 @@ async function fillContract(c) {
   const el = document.getElementById('ctSec');
   if (!el || current !== c) return;
   if (c.contractId) {
-    const s = contractState(c);
+    const s = contractState(c), p = state.contracts && state.contracts.deals[c.contractId], m = p && p.memo;
     el.innerHTML = '<div class="ctbox"><div><b>' + esc(s ? s.text : '契約') + '</b><small>案件ID ' + esc(c.contractId) + '</small></div>' +
-      '<a class="btn" href="' + esc(contractLink(c.contractId)) + '" target="_blank" rel="noopener">契約進捗を開く ↗</a></div>';
+      '<a class="btn" href="' + esc(contractLink(c.contractId)) + '" target="_blank" rel="noopener">契約進捗を開く ↗</a></div>' +
+      // 契約進捗の「面談・メモ」のいちばん新しいもの
+      (m ? '<div class="note ctmemo"><div class="meta">契約進捗のメモ・' + esc(m.at) + '・' + esc(m.by) + '</div><div class="memo">' + esc(m.text) + '</div></div>' : '');
     return;
   }
   if (!c.ctTried) {
@@ -1332,7 +1338,7 @@ function openSheet(row) {
       '<div class="losebox" id="loseBox" hidden><div class="closebar">' +
         '<button class="btn lose" id="markLost">今月の失客</button><button class="btn ghost" id="markArchive">過去の失客（整理）</button></div>' +
         '<div class="hint">「今月の失客」は今月の列にグレーで残り、今月の失客に数えます。「過去の失客（整理）」は、以前から連絡が取れていない人などをボードから片付けるだけで、今月には数えません。どちらもあとで「失客から戻す」で戻せます。</div></div></div>' +
-    (c.result === 'won' && !isSale(c) && CONTRACT_URL ? '<div class="sec"><div class="lbl">契約進捗</div><div id="ctSec"></div></div>' : '') +
+    ((c.result === 'won' || isAfterApply(c)) && !isSale(c) && CONTRACT_URL ? '<div class="sec"><div class="lbl">契約進捗</div><div id="ctSec"></div></div>' : '') +
     '<div class="sec"><div class="lbl">メモ（シートのC列）</div><textarea class="field" id="fMemo">' + esc(c.memo) + '</textarea>' +
       '<div style="margin-top:6px;text-align:right"><button class="btn" id="save">保存</button></div></div>' +
     '<div class="sec"><div class="lbl">追客アラート（前日18時・当日8時に担当者へメール＋カレンダー）</div>' +
