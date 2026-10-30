@@ -1622,7 +1622,8 @@ const barTops=o=>({id:'barTops',afterDatasetsDraw(chart){
   ctx.restore()}});
 /**
  * 月別推移のかたまりを host に足す。期と担当のボタン、売上・申込件数・紹介数・縦掘り数・口コミの縦棒を縦に5つ。
- * 「前の期と比べる」は濃い棒が選んだ期、薄い棒が前の期の同じ月。「全期」は月ごとに1期〜今期の棒を並べる（色が濃いほど最近の期）。
+ * ふだんは選んだ期の月だけ。「前の期と比べる」は濃い棒が選んだ期、薄い棒が前の期の同じ月。
+ * 「全期」はシートの最初の月（2022/07）から今月までを左から順に1本ずつ（期ごとに色の濃さを変える。毎月1本ずつ増える）。
  * ボタンを押すと rerender() で描き直す。
  * 戻り値：{ F: 選んだ期, who, sums: { rev: [今期, 前期の同じ月まで], ... } }
  */
@@ -1644,11 +1645,10 @@ function mlBlock(host,rerender,title){
   const shade=i=>{const n=fl.length,a=n>1?.22+.78*i/(n-1):1;let hx=mlWho==='all'?(dark?'#7fb2e5':'#2b6cb0'):(COLOR_OF[mlWho]||'#9aa3b2');
     if(dark&&hexToHsl(hx)[2]<20)hx='#e6e6e6'; // 黒い担当（寺田さん）は暗い画面では白に
     const r=parseInt(hx.slice(1,3),16),g=parseInt(hx.slice(3,5),16),b=parseInt(hx.slice(5,7),16);return `rgba(${r},${g},${b},${a.toFixed(2)})`};
-  const fyMonths=f=>{const y=Number(f.to.slice(0,4))-1;return [4,5,6,7,8,9,10,11,12,1,2,3].map(m=>(m>=4?y:y+1)+'/'+String(m).padStart(2,'0'))};
   const upto=months.filter(ym=>ym<=SC.partial),sums={};
   const head=document.createElement('section');head.className='card sc';
   head.innerHTML=`<div class="sc-head"><div><h3>${icon('rev')}${esc(title)}<small class="ml-sub">${mlMode==='all'?'全期を並べる':mlMode==='prev'?'前の期と比べる':esc(F.l)}</small></h3>
-      <p>${mlMode==='all'?'月ごとに1期〜今期の棒を並べています（色が濃いほど最近の期）':mlMode==='prev'?`濃い棒が${esc(F.l)}、薄い棒が前の期の同じ月です`:`${esc(F.l)}の月ごとの数字です。「前の期と比べる」「全期」を押すと並べて見られます（もう一度押すと戻ります）`}。担当を押すと切り替わります。下にスクロールすると、売上・申込件数・紹介数・縦掘り数・口コミの順に見られます</p></div></div>
+      <p>${mlMode==='all'?'最初の月から今月までを順に並べています（期ごとに色の濃さが変わり、今期がいちばん濃い）':mlMode==='prev'?`濃い棒が${esc(F.l)}、薄い棒が前の期の同じ月です`:`${esc(F.l)}の月ごとの数字です。「前の期と比べる」「全期」を押すと並べて見られます（もう一度押すと戻ります）`}。担当を押すと切り替わります。下にスクロールすると、売上・申込件数・紹介数・縦掘り数・口コミの順に見られます</p></div></div>
     <div class="ml-ctl"><div class="seg" role="group" aria-label="見かた"><button data-mlmode="prev" aria-pressed="${mlMode==='prev'}">前の期と比べる</button><button data-mlmode="all" aria-pressed="${mlMode==='all'}">全期</button></div>
       ${mlMode==='all'?`<div class="legend">${fl.map((f,i)=>`<span><i style="background:${shade(i)}"></i>${f.l}${f.partial?'（途中）':''}</span>`).join('')}</div>`:`<div class="seg" role="group" aria-label="期">${fl.map(f=>`<button data-mlki="${f.n}" aria-pressed="${f.n===mlKi}">${f.l}${f.partial?'（今期）':''}</button>`).join('')}</div>`}</div>
     <div class="ml-who" role="group" aria-label="担当">${[['all','全員']].concat(names.map(n=>[n,short(n)])).map(([k,l])=>
@@ -1666,17 +1666,20 @@ function mlBlock(host,rerender,title){
     const a=months.map(ym=>ym>SC.partial?null:val(ym,k)),b=months.map(ym=>val(prev(ym),k));
     const sa=upto.reduce((t,ym)=>t+(val(ym,k)||0),0),sb=upto.reduce((t,ym)=>t+(val(prev(ym),k)||0),0),hasPrev=mlMode==='prev'&&b.some(v=>v!=null);
     sums[k]=[sa,sb];
+    const cum=mlMode==='all'?[...have].filter(ym=>ym<=SC.partial).reduce((t,ym)=>t+(val(ym,k)||0),0):null;
     const d=hasPrev&&sb?(sa-sb)/sb*100:null;
     const id='ml-'+k+'-'+Math.random().toString(36).slice(2,7),sec=document.createElement('section');sec.className='card sc';
-    sec.innerHTML=`<div class="sc-head ml-cardhead"><div><h3>${icon(ML_ICON[k]||'rev')}${esc(label)}</h3><p>${esc(F.l)}${F.partial?'（今月まで）':''}の合計${hasPrev?'と、前の期の同じ月までの合計':''}${mlMode==='all'?'。棒にのせると期ごとの数が出ます':''}</p></div>
-        <div class="ml-sum"><b>${fmt(sa)}<i>${unit}</i></b>${hasPrev?`<span>前の期 ${fmt(sb)}${unit}</span>`:''}${d==null?'':`<span class="ml-diff ${d>=0?'up':'down'}">${d>=0?'▲':'▼'}${Math.abs(d).toFixed(1)}%</span>`}</div></div>
+    sec.innerHTML=`<div class="sc-head ml-cardhead"><div><h3>${icon(ML_ICON[k]||'rev')}${esc(label)}</h3><p>${mlMode==='all'?'シートの最初の月から今月までの毎月。棒にのせると月と期が出ます':esc(F.l)+(F.partial?'（今月まで）':'')+'の合計'+(hasPrev?'と、前の期の同じ月までの合計':'')}</p></div>
+        <div class="ml-sum">${cum!=null?`<span>累計</span><b>${fmt(cum)}<i>${unit}</i></b><span>${esc(F.l)} ${fmt(sa)}${unit}</span>`:`<b>${fmt(sa)}<i>${unit}</i></b>`}${hasPrev?`<span>前の期 ${fmt(sb)}${unit}</span>`:''}${d==null?'':`<span class="ml-diff ${d>=0?'up':'down'}">${d>=0?'▲':'▼'}${Math.abs(d).toFixed(1)}%</span>`}</div></div>
       <div class="canvas" style="height:250px"><canvas id="${id}" role="img" aria-label="${esc(label)}の月別"></canvas></div>`;
     host.appendChild(sec);
     const ds=[];let labels=months.map(ym=>mlab(ym)+(ym===SC.partial?'（途中）':''));
     if(mlMode==='all'){
-      // 月ごとに1期〜今期。各期の4月〜3月（1期目の1〜3月は前の年の分なので入れない）
-      labels=['4月','5月','6月','7月','8月','9月','10月','11月','12月','1月','2月','3月'];
-      fl.forEach((f,i)=>ds.push({label:f.l,data:fyMonths(f).map(ym=>ym>SC.partial?null:val(ym,k)),backgroundColor:shade(i),borderRadius:2,maxBarThickness:14,categoryPercentage:.86,barPercentage:.94}));
+      // シートの最初の月から今月まで、1か月1本。色はその月が入っている期の濃さ
+      const all=[...have].filter(ym=>ym<=SC.partial).sort(),fi=ym=>fl.findIndex(f=>ym>=f.from&&ym<=f.to);
+      labels=all.map(ym=>ym.slice(2,4)+'/'+Number(ym.slice(5)));
+      ds.push({label:'',data:all.map(ym=>val(ym,k)),backgroundColor:all.map(ym=>shade(Math.max(0,fi(ym)))),borderRadius:2,maxBarThickness:18,categoryPercentage:.9,barPercentage:.9,
+        _fl:all.map(ym=>{const f=fl[fi(ym)];return f?f.l:''})});
     }else{
       if(hasPrev)ds.push({label:'前の期',data:b,backgroundColor:old,borderRadius:3,maxBarThickness:22,categoryPercentage:.78,barPercentage:.92});
       ds.push({label:F.l,data:a,backgroundColor:cur,borderRadius:3,maxBarThickness:22,categoryPercentage:.78,barPercentage:.92});
@@ -1685,7 +1688,7 @@ function mlBlock(host,rerender,title){
       data:{labels,datasets:ds},
       options:{responsive:true,maintainAspectRatio:false,animation:{duration:300},layout:{padding:{top:18}},
         plugins:{legend:{display:false},tooltip:{mode:'index',backgroundColor:th.surf,titleColor:th.fg,bodyColor:th.fg,footerColor:th.fg,borderColor:th.grid,borderWidth:1,padding:10,cornerRadius:4,
-          filter:it=>it.raw!=null,callbacks:{label:c=>' '+c.dataset.label+'：'+fmt(c.raw||0)+unit,
+          filter:it=>it.raw!=null,callbacks:{label:c=>' '+(c.dataset._fl?c.dataset._fl[c.dataIndex]:c.dataset.label)+'：'+fmt(c.raw||0)+unit,
             footer:it=>{if(mlMode==='all')return '';const x=it.find(i=>i.datasetIndex===ds.length-1),y=it.find(i=>i.datasetIndex===0&&ds.length>1);return x&&y&&y.raw?'前の期と比べて '+((x.raw-y.raw)/y.raw*100>=0?'+':'')+((x.raw-y.raw)/y.raw*100).toFixed(1)+'%':''}}}},
         scales:{x:{grid:{display:false},border:{display:false},ticks:{color:th.fg,font:{size:11}}},
           y:{beginAtZero:true,grid:{color:th.grid,drawTicks:false},border:{display:false},ticks:{color:th.faint,maxTicksLimit:5,font:{size:11},callback:v=>fmt(v)}}}}}));
