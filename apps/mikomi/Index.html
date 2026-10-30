@@ -1137,8 +1137,8 @@ function meetBoxHtml(c) {
 }
 // お客様に送る Meet の案内文（全員この文面で統一）。日時は面談の予定から入れる（予定が無いときは日時の行を出さない）
 function meetGuideText(c) {
-  const d = planDate(c.planMeeting), endM = String(c.planMeeting || '').match(/〜(\d{2}:\d{2})/);
-  const when = d ? (d.getMonth() + 1) + '月' + d.getDate() + '日（' + WEEK[d.getDay()] + '）' + c.planMeeting.slice(11, 16) + (endM ? '〜' + endM[1] : '') : '';
+  const d = planDate(c.planMeeting); // 終わりの時間は出さず「11:00〜」の形にする
+  const when = d ? (d.getMonth() + 1) + '月' + d.getDate() + '日（' + WEEK[d.getDay()] + '）' + c.planMeeting.slice(11, 16) + '〜' : '';
   return 'オンライン面談のご案内をお送りさせて頂きます！\n\n当日はどうか宜しくお願い致します！\n\n' +
     (when ? '■日時：' + when + '\n' : '') + '■方法：Google Meet（オンライン）\n■参加URL：' + c.meetLink + '\n\n\n' +
     '⏬ご利用方法\nPCでも、携帯でもご利用可能です！\n操作方法が異なりまして、下記の通りになります◎\n\n' +
