@@ -1879,7 +1879,10 @@ function contractName_(s) {
 // 担当は先頭2文字で比べる（売上表のブロック名が「小嶋」「小嶋勇輝」のどちらでもよいように）
 const contractStaff_ = (s) => String(s || '').replace(/[\s　]/g, '').slice(0, 2);
 // staffs：主担当と送客元（送客の案件は、売上表では送客元のブロックに入っていることもあるので両方で探す）
-function findContract_(deals, name, staffs) {
+function findContract_(deals, name, staffs, no) {
+  // 顧客No が同じ案件があれば、それがいちばん確か
+  const byNo = no && deals.find((d) => d['案件ID'] && d['顧客No'] === no && d['状態'] !== 'キャンセル' && d['状態'] !== '対象外');
+  if (byNo) return byNo;
   const nm = contractName_(name), sts = [].concat(staffs).filter(Boolean).map(contractStaff_);
   const hits = deals.filter((d) => d['案件ID'] && contractName_(d['お客様名']) === nm && sts.indexOf(contractStaff_(d['担当'])) >= 0
     && d['状態'] !== 'キャンセル' && d['状態'] !== '対象外');
@@ -1897,22 +1900,24 @@ function ensureContract_(row, name, create) {
   const owners = parseOwners_(r[map.staff]);
   const staff = owners ? owners.owners[0] : String(r[map.staff]).trim();
   const ss = contractDb_();
+  const no = customerNoOf_(sheet, map, actualRow, r);
   // 契約進捗DBを読んで探す間は、保存の順番待ち（ロック）をふさがない（読むのに数秒かかるため）
   const who = owners ? owners.owners : [staff];
-  let deal = findContract_(readContractSheet_(ss, '案件'), r[map.name], who), created = false;
+  let deal = findContract_(readContractSheet_(ss, '案件'), r[map.name], who, no), created = false;
   if (!deal && create) {
     // 新しく作るときだけ順番待ちして、その間にほかで作られていないかもう一度探す（二重に作らないように）
     const lock = LockService.getScriptLock();
     lock.waitLock(LOCK_WAIT);
     try {
-      deal = findContract_(readContractSheet_(ss, '案件'), r[map.name], who);
+      deal = findContract_(readContractSheet_(ss, '案件'), r[map.name], who, no);
       if (!deal) {
         const sh = ss.getSheetByName('案件');
+        contractNoCol_(sh);
         const head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
         const now = new Date();
         deal = { '案件ID': Utilities.formatDate(now, 'Asia/Tokyo', 'yyMMdd') + '-' + Utilities.getUuid().slice(0, 6), '作成日時': now,
           '担当': staff, 'お客様名': String(r[map.name]).trim(), '月タブ': '', '行': '', '物件': map.property != null ? r[map.property] : '',
-          '契約方法': '対面', '状態': '進行中', '最終活動': now };
+          '契約方法': '対面', '状態': '進行中', '最終活動': now, '顧客No': no };
         sh.appendRow(head.map((h) => (deal[h] === undefined ? '' : deal[h])));
         const log = ss.getSheetByName('履歴');
         if (log) log.appendRow([now, deal['案件ID'], '作成', '見込みボードの成約から（顧客管理 ' + actualRow + '行目）', currentStaffName_() || currentEmail_()]);
@@ -1923,10 +1928,27 @@ function ensureContract_(row, name, create) {
     }
   }
   if (!deal) return null;
+  // 前からある案件（売上表から作られたもの）には、顧客No を入れておく（売上表の名前に番号を付けるのに使う）
+  if (no && !deal['顧客No']) {
+    try {
+      const sh = ss.getSheetByName('案件'), col = contractNoCol_(sh);
+      const ids = sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues();
+      const k = ids.findIndex((x) => x[0] === deal['案件ID']);
+      if (k >= 0) sh.getRange(k + 2, col).setValue(no);
+    } catch (e) { /* 番号が入らなくても、つなぐのはできている */ }
+  }
   sheet.getRange(actualRow, map.contract + 1).setValue(deal['案件ID']); // 1セルだけなので順番待ちしない
   clearCache_();
   CacheService.getScriptCache().remove(CONTRACT_CACHE_KEY);
   return { id: deal['案件ID'], row: actualRow, created: created };
+}
+/** 契約進捗DBの「案件」シートの顧客No の列（1始まり）。無ければ一番右に足す（契約進捗アプリの見出しと同じ並び） */
+function contractNoCol_(sh) {
+  const head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
+  const i = head.indexOf('顧客No');
+  if (i >= 0) return i + 1;
+  sh.getRange(1, head.length + 1).setValue('顧客No').setFontWeight('bold').setBackground('#eeeeee');
+  return head.length + 1;
 }
 /** 詳細を開いたとき：契約進捗の案件を探してつなぐ（作らない）。{ id } か null */
 function linkContract(row, name) { return ensureContract_(row, name, false); }

@@ -12,7 +12,7 @@ const SHEET_DEFS = {
   deals:   { name: '案件', head: ['案件ID', '作成日時', '担当', 'お客様名', '月タブ', '行', '物件', '管理会社', 'TEL', '契約方法',
                                   '重説予定日', '契約書到着予定日', '決済予定日', '入居日', '付帯', '状態', '引き継ぎ先',
                                   'キャンセル理由', 'キャンセル詳細', 'キャンセル日時', 'キャンセル者', '最終活動',
-                                  '重説完了日', '宅建士', '鍵渡し予定日時', '完了日時'] },
+                                  '重説完了日', '宅建士', '鍵渡し予定日時', '完了日時', '顧客No'] },
   checks:  { name: 'チェック', head: ['案件ID', '項目ID', '状態', '日時', '記録者'] },
   notes:   { name: 'メモ', head: ['日時', '案件ID', '記録者', '内容'] },
   hiki:    { name: '引き継ぎ', head: ['案件ID', 'キー', '値', '日時', '記録者'] },
@@ -168,6 +168,7 @@ function scanTab_(sh, deals, quiet, fromRow, toRow) {
   const rich = nameRange.getRichTextValues();
   const moves = cols.move ? sh.getRange(r1, cols.move, n, 1).getValues() : null;
   const sales = cols.sale ? sh.getRange(r1, cols.sale, n, 1).getValues() : null;
+  const bgs = nameRange.getBackgrounds();
   const tab = sh.getName().trim();
   let block = '';
   for (let k = 0; k < r2 - 1; k++) {
@@ -196,30 +197,40 @@ function scanTab_(sh, deals, quiet, fromRow, toRow) {
     if (link && dealIdFromUrl_(link)) continue; // すでにリンク済み
     if (link) continue; // 別のリンクが付いているセルには触らない
 
-    // 同じタブ・同じ名前の案件があればつなぎ直す（リンクが消えた場合の保険）
-    let deal = deals.find(d => d['月タブ'] === tab && d['お客様名'] === name && d['状態'] !== 'キャンセル');
+    // ① 名前のセルに顧客No（M3188）が書いてあれば、その顧客の案件（見込みボードの「成約」で作ったもの）につなぐ
+    const noHit = name.match(CUSTOMER_NO_RE);
+    let deal = noHit ? deals.find(d => d['顧客No'] === noHit[0] && d['状態'] !== 'キャンセル') : null;
+    if (deal && (deal['月タブ'] !== tab || Number(deal['行']) !== r1 + i)) {
+      update_('deals', deal, { '月タブ': tab, '行': r1 + i, '担当': block });
+      log_(deal['案件ID'], '売上表とつなぐ', tab + ' ' + (r1 + i) + '行目 ' + name + '（顧客No）', 'システム');
+    }
+    // ② 同じタブ・同じ名前の案件があればつなぎ直す（リンクが消えた場合の保険）
+    if (!deal) deal = deals.find(d => d['月タブ'] === tab && d['お客様名'] === name && d['状態'] !== 'キャンセル');
     if (deal && deal['状態'] === '対象外') {
       // 売買のチェックが外れたので賃貸として戻す
       update_('deals', deal, { '状態': '進行中' });
       log_(deal['案件ID'], '対象に戻す', '売買のチェックが外れたため', 'システム');
     }
-    // 見込みボードの「成約」で先に作られた案件があれば、それにつなぐ（同じ担当・ゆるく同じ名前）
+    // ③ 見込みボードの「成約」で先に作られた案件があれば、それにつなぐ（同じ担当・ゆるく同じ名前）
     if (!deal) deal = linkBoardDeal_(deals, name, block, tab, r1 + i);
-    if (!deal) {
-      deal = {
-        '案件ID': newId_(), '作成日時': new Date(), '担当': block, 'お客様名': name, '月タブ': tab, '行': r1 + i,
-        '契約方法': '対面', '入居日': moves && moves[i][0] instanceof Date ? moves[i][0] : '', '状態': '進行中',
-        // 最終活動が空の案件は、チェックかメモが入るまでアラートを出さない
-        '最終活動': quiet ? '' : new Date(),
-      };
-      append_('deals', deal);
-      deals.push(deal);
-      log_(deal['案件ID'], '作成', tab + ' ' + (r1 + i) + '行目 ' + name, 'システム');
-    }
-    const url = CONFIG.WEB_APP_URL + '?id=' + deal['案件ID'];
     const cell = sh.getRange(r1 + i, cols.name);
-    cell.setRichTextValue(SpreadsheetApp.newRichTextValue().setText(names[i][0]).setLinkUrl(url).build());
-    if (deal['状態'] !== '完了') paintCell_(cell, deal['状態'] === 'キャンセル' ? '#ffffff' : PENDING_COLOR);
+    if (!deal) {
+      // 案件は見込みボードの「成約」でだけ作る。つながらない行は黄色にして知らせる（成約を押すか、名前の後ろに顧客No を書くとつながる）
+      if (String(bgs[i][0]).toLowerCase() !== NO_DEAL_COLOR) {
+        cell.setBackground(NO_DEAL_COLOR);
+        cell.setNote('契約進捗とまだつながっていません。見込みボードでこのお客様の「成約」を押すか、名前の後ろに顧客No（例：田坂様 M3188）を書くとつながります。');
+      }
+      continue;
+    }
+    // 名前の後ろに顧客No を付けて、売上表でも番号が分かるようにする（顧客No だけ書いたときは、お客様名に置き換える）
+    let text = String(names[i][0]).trim();
+    const no = deal['顧客No'];
+    if (noHit && text.replace(CUSTOMER_NO_RE, '').trim() === '') text = salesName_(deal['お客様名']);
+    if (no && text.indexOf(no) < 0) text = text.replace(CUSTOMER_NO_RE, '').trim() + ' ' + no;
+    const url = CONFIG.WEB_APP_URL + '?id=' + deal['案件ID'];
+    cell.setRichTextValue(SpreadsheetApp.newRichTextValue().setText(text).setLinkUrl(url).build());
+    if (String(bgs[i][0]).toLowerCase() === NO_DEAL_COLOR) cell.clearNote();
+    paintCell_(cell, deal['状態'] === 'キャンセル' ? '#ffffff' : deal['状態'] === '完了' ? (blockColor_(sh, r1 + i) || '#d9ead3') : PENDING_COLOR);
   }
 }
 
@@ -227,15 +238,32 @@ function scanTab_(sh, deals, quiet, fromRow, toRow) {
 // 同じ担当（先頭2文字）を優先。送客の案件は売上表では送客元のブロックに入ることがあるので、担当が違っても同じ名前が1件だけならつなぐ
 function linkBoardDeal_(deals, name, block, tab, row) {
   const nm = boardName_(name), st = String(block).replace(/[\s　]/g, '').slice(0, 2);
-  const same = deals.filter(d => !d['月タブ'] && d['状態'] !== 'キャンセル' && d['状態'] !== '対象外' && boardName_(d['お客様名']) === nm);
-  const deal = same.find(d => String(d['担当']).replace(/[\s　]/g, '').slice(0, 2) === st) || (same.length === 1 ? same[0] : null);
+  const open = deals.filter(d => !d['月タブ'] && d['状態'] !== 'キャンセル' && d['状態'] !== '対象外');
+  const same = open.filter(d => boardName_(d['お客様名']) === nm);
+  let deal = same.find(d => String(d['担当']).replace(/[\s　]/g, '').slice(0, 2) === st) || (same.length === 1 ? same[0] : null);
+  // 見込みボードの名前は「谷元さんご紹介　田坂様（タニモトサン）」のように前に紹介メモが付くことがあるので、
+  // 同じ担当で、片方の名前がもう片方に含まれる案件が1件だけならつなぐ
+  if (!deal && nm.length >= 2) {
+    const part = open.filter(d => String(d['担当']).replace(/[\s　]/g, '').slice(0, 2) === st)
+      .filter(d => { const b = boardName_(d['お客様名']); return b.length >= 2 && (b.indexOf(nm) >= 0 || nm.indexOf(b) >= 0); });
+    if (part.length === 1) deal = part[0];
+  }
   if (!deal) return null;
   update_('deals', deal, { '月タブ': tab, '行': row, '担当': block });
   log_(deal['案件ID'], '売上表とつなぐ', tab + ' ' + row + '行目 ' + name, 'システム');
   return deal;
 }
 function boardName_(s) {
-  return String(s || '').replace(/[（(][^）)]*[）)]/g, '').replace(/[\s　]/g, '').replace(/(様|さま|さん)$/, '');
+  return String(s || '').replace(CUSTOMER_NO_RE, '').replace(/[（(][^）)]*[）)]/g, '').replace(/[\s　]/g, '').replace(/(様|さま|さん)$/, '');
+}
+// 顧客管理の顧客No（見込みボードが振る M0001 の形）。売上表の名前のセルにこれがあれば、その顧客の案件につなぐ
+const CUSTOMER_NO_RE = /M\d{4,}/;
+// 売上表で、契約進捗とまだつながっていない名前のセルの色（見込みボードで成約を押すとつながる）
+const NO_DEAL_COLOR = '#fff2cc';
+// 売上表に書くお客様名：見込みボードの名前からフリガナ（カッコ）を外し、最後に「様」を付ける
+function salesName_(s) {
+  const n = String(s || '').replace(/\s*[（(][^（()）]*[)）]\s*$/, '').trim();
+  return /(様|さま)$/.test(n) ? n : n + '様';
 }
 
 // 案件の売上表上の位置を探す（行が動いていてもリンクで探し直す）
@@ -351,7 +379,7 @@ function apiList() {
     me,
     deals: readAll_('deals').map(d => {
       const p = progress_(d, items, checks[d['案件ID']] || []);
-      return { id: d['案件ID'], name: d['お客様名'], staff: d['担当'], tab: d['月タブ'], mode: d['契約方法'],
+      return { id: d['案件ID'], name: d['お客様名'], no: d['顧客No'], staff: d['担当'], tab: d['月タブ'], mode: d['契約方法'],
                status: d['状態'], done: p.done, total: p.total, phase: p.phase, idleHours: idleHours_(d),
                moveIn: fmtDate_(d['入居日']), phases: p.phases, phaseIdx: p.phaseIdx, memo: memos[d['案件ID']] || null };
     }).reverse(),

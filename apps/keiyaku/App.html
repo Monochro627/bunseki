@@ -322,13 +322,13 @@ function renderList() {
       <label class="hint"><input type="checkbox" id="closed" ${showClosed ? "checked" : ""}> 完了・キャンセルも表示</label>
     </div>
     <div class="dl">${rows.length ? rows.map(d => { const s = listState(d); return `
-      <button class="drow st-${s}" data-id="${esc(d.id)}"><b>${esc(d.name)} 様</b><span class="pill ${s}">${STATE_TXT[s]}</span>
+      <button class="drow st-${s}" data-id="${esc(d.id)}"><b>${esc(d.name)} 様${d.no ? ` <small style="color:var(--muted);font-weight:400">${esc(d.no)}</small>` : ""}</b><span class="pill ${s}">${STATE_TXT[s]}</span>
         <span class="dots">${(d.phases || []).map((ph, i) => `<i class="${i < d.phaseIdx || s === "done" ? "on" : i === d.phaseIdx && s !== "cancel" ? "now" : ""}" title="${esc(ph)}"></i>`).join("")}</span>
         <span class="meta"><span>${esc(d.staff)}</span><span>${esc(d.mode)}契約</span><span>入居 ${md(d.moveIn) || "未定"}</span>
         <span class="bar"><i><u style="width:${d.total ? d.done / d.total * 100 : 0}%"></u></i><span class="num">${d.done}/${d.total}</span></span>
         ${d.phase && d.status === "進行中" ? `<span>いま：${esc(d.phase)}</span>` : ""}<span>${esc(d.tab)}</span></span>
         ${d.memo ? `<span class="memo1">📝 ${esc(d.memo.text.replace(/\s+/g, " "))}<small>${mdhm(d.memo.at)} ${esc(d.memo.by)}</small></span>` : ""}</button>`; }).join("")
-      : '<div class="hint">表示する案件がありません。売上表にお客様名と案件種別が入ると、ここに出てきます。</div>'}</div>`;
+      : '<div class="hint">表示する案件がありません。見込みボードで「成約」を押すと、ここに出てきます。</div>'}</div>`;
   $("scope").onchange = e => { scope = e.target.value; renderList(); };
   $("closed").onchange = e => { showClosed = e.target.checked; renderList(); };
   document.querySelectorAll(".drow").forEach(b => b.onclick = () => openDeal(b.dataset.id));
@@ -405,7 +405,7 @@ function renderCard() {
     <div class="card">
       <div class="dhead">
         <svg class="ring" viewBox="0 0 80 80"><circle class="bgc" cx="40" cy="40" r="33"/><circle class="fg" cx="40" cy="40" r="33" stroke-dasharray="${C}" stroke-dashoffset="${off}" transform="rotate(-90 40 40)"/><text x="40" y="45" text-anchor="middle">${s.done}/${s.tot}</text></svg>
-        <div class="dmeta"><div class="sub">賃貸・担当 ${esc(d["担当"])}・${esc(d["月タブ"])}</div><h2>${esc(d["お客様名"])} 様</h2>
+        <div class="dmeta"><div class="sub">賃貸・担当 ${esc(d["担当"])}・${esc(d["月タブ"] || "売上表とまだつながっていません")}${d["顧客No"] ? "・" + esc(d["顧客No"]) : ""}</div><h2>${esc(d["お客様名"])} 様</h2>
           <div class="facts">${txt("物件", "物件")}${txt("管理会社", "管理会社")}${txt("TEL", "TEL")}</div></div>
         <span class="pill ${s.st}">${STATE_TXT[s.st]}</span>
       </div>
