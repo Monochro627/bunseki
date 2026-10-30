@@ -216,12 +216,13 @@ td small{color:var(--faint)}
 .ml-who button{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:999px;padding:5px 12px;font:inherit;font-size:12.5px;cursor:pointer}
 .ml-who button i{width:9px;height:9px;border-radius:50%}
 .ml-who button[aria-pressed="true"]{background:var(--fg);color:var(--surface);border-color:var(--fg);font-weight:700}
+.ps-sum{margin:2px 0 6px}.ps-custom{display:inline-flex;align-items:center;gap:6px;font-size:12px}
 .ml-cardhead{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap}
 .ml-sum{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;font-size:12px;color:var(--muted)}
 .ml-sum b{font-size:20px;color:var(--fg)}.ml-sum b i{font-style:normal;font-size:12px;margin-left:2px;color:var(--muted)}
 .ml-diff{font-weight:700;padding:1px 8px;border-radius:999px}
 .ml-diff.up{color:#1e8a4c;background:rgba(30,138,76,.12)}.ml-diff.down{color:#c2410c;background:rgba(194,65,12,.12)}
-.ml-span{grid-column:1/-1;display:flex;flex-direction:column;gap:12px}
+
 .mg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
 @media (max-width:760px){.mg{grid-template-columns:1fr}}
 .mg h4{margin:0 0 2px;font-size:12px;color:var(--muted);font-weight:600}
@@ -1096,8 +1097,6 @@ function renderScore(){
     scBarCard('フォロワー数','インスタのフォロワー数（「フォロワー」シートの今の数字。期間は関係なし）','follow',fl,{total:SC.followerTotal.toLocaleString('ja-JP')+'人',sumLabel:'総フォロワー数',full:true,unit:'人'});
   }
 
-  // 月別推移（前の期と比べる）を一番下に。期と担当は上の期間ボタンとは別に選ぶ
-  if(scKey==='score'){const mh=document.createElement('div');mh.className='ml-span';grid.appendChild(mh);mlBlock(mh,renderScore,'月別推移')}
   document.getElementById('sc-foot').innerHTML=`数字は顧客管理スプレッドシートの「★紹介分析データ用（新）」シートから、開くたびに読み込みます（最大10分前の数字）。`+
     (SCP.leads?`売上・総申込数・売上シェアは、Looker Studio と同じく最初は小嶋さん・諸本さんを除いて並べています（上のチェックで入れられます）。上の4つの数字は8名全員の合計です。`:`8名全員を並べています（インスタ等の行は入れていません）。`)+
     `累積はシートにある一番古い月（2022/07）からの合計です（小嶋さんのそれより前の分は入っていません）。件数の欄に金額などが入っている月は 0 として数えています。`;
@@ -1695,6 +1694,41 @@ function mlBlock(host,rerender,title){
   });
   return {F,who:mlWho,sums};
 }
+// 担当者シートの月別グラフ：グラフは1つで、項目（5つ）と期間はボタンで切り替える（見ている人のブラウザに保存）
+let psMetric=store.get('ps.metric')||'rev',psRange=store.get('ps.range')||'',psFrom=store.get('ps.from')||'',psTo=store.get('ps.to')||'';
+function personMonthly(secId,n){
+  const host=document.getElementById(secId),fl=fiscalList(),months=[...new Set(SC.rows.map(r=>r[0]))].filter(ym=>ym<=SC.partial).sort();
+  const ranges=fl.slice().reverse().map(f=>({k:'p'+f.n,l:f.l+(f.partial?'（今期）':''),from:f.from,to:f.to})).concat([{k:'all',l:'全期間',from:months[0],to:SC.partial},{k:'custom',l:'期間を指定'}]);
+  if(!ranges.some(r=>r.k===psRange))psRange=ranges[0].k;
+  if(!months.includes(psFrom))psFrom=addMonths(SC.partial,-11);if(!months.includes(psFrom))psFrom=months[0];
+  if(!months.includes(psTo))psTo=SC.partial;if(psFrom>psTo)[psFrom,psTo]=[psTo,psFrom];
+  const R=ranges.find(r=>r.k===psRange),from=R.k==='custom'?psFrom:R.from,to=R.k==='custom'?psTo:R.to;
+  const list=months.filter(ym=>ym>=from&&ym<=to),M=ML_METRICS.find(m=>m[0]===psMetric)||ML_METRICS[0],k=M[0],ki=SC.keys.indexOf(k)+2;
+  const V={};SC.rows.forEach(r=>{if(r[1]===n)V[r[0]]=r[ki]||0});
+  const data=list.map(ym=>V[ym]||0),fmt=M[2]?fmtMan:(v=>Math.round(v).toLocaleString('ja-JP')),unit=M[2]?'':'件';
+  const sum=data.reduce((a,b)=>a+b,0),bi=data.indexOf(Math.max(...data));
+  const oneFy=list.length&&fl.some(f=>list[0]>=f.from&&list[list.length-1]<=f.to),lab=ym=>oneFy?Number(ym.slice(5))+'月':ym.slice(2,4)+'/'+Number(ym.slice(5));
+  const opts=months.map(m=>`<option value="${m}">${m}</option>`).join(''),id='pm-'+Math.random().toString(36).slice(2,7),col=colorsFor(n,0).fill;
+  host.innerHTML=`<section class="card sc">
+    <div class="ml-ctl"><div class="seg" role="group" aria-label="項目">${ML_METRICS.map(m=>`<button data-psm="${m[0]}" aria-pressed="${m[0]===k}">${m[1]}</button>`).join('')}</div></div>
+    <div class="ml-ctl"><div class="seg" role="group" aria-label="期間">${ranges.map(r=>`<button data-psr="${r.k}" aria-pressed="${r.k===psRange}">${r.l}</button>`).join('')}</div>
+      ${R.k==='custom'?`<span class="ps-custom"><select id="ps-from" aria-label="始まりの月">${opts}</select>〜<select id="ps-to" aria-label="終わりの月">${opts}</select></span>`:''}</div>
+    <div class="ml-sum ps-sum"><span>${esc(M[1])}の合計</span><b>${fmt(sum)}<i>${unit}</i></b><span>月平均 ${fmt(list.length?sum/list.length:0)}${unit}</span>${sum?`<span>いちばん多い月 ${lab(list[bi])} ${fmt(data[bi])}${unit}</span>`:''}</div>
+    <div class="canvas" style="height:280px"><canvas id="${id}" role="img" aria-label="${esc(short(n))}さんの${esc(M[1])}の月別"></canvas></div></section>`;
+  if(R.k==='custom'){const f=host.querySelector('#ps-from'),t=host.querySelector('#ps-to');f.value=psFrom;t.value=psTo;
+    const on=()=>{psFrom=f.value;psTo=t.value;store.set('ps.from',psFrom);store.set('ps.to',psTo);personMonthly(secId,n)};f.onchange=on;t.onchange=on}
+  host.onclick=e=>{const a=e.target.closest('[data-psm]'),b=e.target.closest('[data-psr]');
+    if(a){psMetric=a.dataset.psm;store.set('ps.metric',psMetric)}else if(b){psRange=b.dataset.psr;store.set('ps.range',psRange)}else return;
+    personMonthly(secId,n)};
+  const th=scTheme(),old=host._chart;if(old){old.destroy();const i=scCharts.indexOf(old);if(i>=0)scCharts.splice(i,1)}
+  host._chart=lazyChart(document.getElementById(id),{type:'bar',plugins:[barTops({di:0,fg:th.fg,disp:th.disp,fmt})],
+    data:{labels:list.map(ym=>lab(ym)+(ym===SC.partial?'（途中）':'')),datasets:[{label:M[1],data,backgroundColor:col,borderRadius:3,maxBarThickness:34}]},
+    options:{responsive:true,maintainAspectRatio:false,animation:{duration:300},layout:{padding:{top:18}},
+      plugins:{legend:{display:false},tooltip:{backgroundColor:th.surf,titleColor:th.fg,bodyColor:th.fg,borderColor:th.grid,borderWidth:1,padding:10,cornerRadius:4,callbacks:{label:c=>' '+M[1]+'：'+fmt(c.raw||0)+unit}}},
+      scales:{x:{grid:{display:false},border:{display:false},ticks:{color:th.fg,font:{size:11}}},
+        y:{beginAtZero:true,grid:{color:th.grid,drawTicks:false},border:{display:false},ticks:{color:th.faint,maxTicksLimit:5,font:{size:11},callback:v=>fmt(v)}}}}});
+  scCharts.push(host._chart);
+}
 const GEN_PAGES={
   monthly:{eyebrow:'推移',title:'月別推移',period:false,who:false,
     lede:'期（4月〜3月）と担当を選ぶと、売上・申込件数・紹介数・縦掘り数・口コミを月ごとの縦棒で見られます。薄い棒は前の期の同じ月です。',
@@ -1757,6 +1791,9 @@ const GEN_PAGES={
       document.getElementById(addSection(main,'row2')).innerHTML=rateCardsHtml(t);
       const mixEl=document.getElementById(addSection(main,'one'));mixEl.innerHTML=introMixHtml(t,short(n)+'さん');drawIntroMix(mixEl,t);
 
+
+      head('月別の推移','売上・申込件数・紹介数・縦掘り数・口コミを月ごとに（項目と期間はこのグラフの中で選びます）');
+      personMonthly(addSection(main,'one'),n);
 
       // 入社年次（1年目・2年目…の年間合計）
       const SE=SERIES[n];
