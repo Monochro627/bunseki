@@ -216,7 +216,9 @@ td small{color:var(--faint)}
 .ml-who button{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:999px;padding:5px 12px;font:inherit;font-size:12.5px;cursor:pointer}
 .ml-who button i{width:9px;height:9px;border-radius:50%}
 .ml-who button[aria-pressed="true"]{background:var(--fg);color:var(--surface);border-color:var(--fg);font-weight:700}
-.ps-sum{margin:2px 0 6px}.ps-custom{display:inline-flex;align-items:center;gap:6px;font-size:12px}
+.ps-sum{margin:2px 0 6px}
+table.ig .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:middle}
+table.ig tfoot td{font-weight:700;border-top:2px solid var(--line);border-bottom:0}.ps-custom{display:inline-flex;align-items:center;gap:6px;font-size:12px}
 .ml-cardhead{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap}
 .ml-sum{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;font-size:12px;color:var(--muted)}
 .ml-sum b{font-size:20px;color:var(--fg)}.ml-sum b i{font-style:normal;font-size:12px;margin-left:2px;color:var(--muted)}
@@ -1730,6 +1732,56 @@ function personMonthly(secId,n){
   scCharts.push(host._chart);
 }
 const GEN_PAGES={
+  insta:{eyebrow:'インスタ',title:'インスタ集計',period:true,who:false,def:'cur',
+    lede:'インスタから来たお客様の面談・内覧・申込・成約率・売上を、全員と担当ごとに一覧で見ます。期間はボタンで選べます。',
+    render({from,to,names,main}){
+      const S=scSum(from,to),rows=names.concat(['インスタ']),g=(n,k)=>(S[n]||{})[k]||0,t=k=>rows.reduce((a,n)=>a+g(n,k),0);
+      const fol={};SC.followers.forEach(f=>{fol[f.name]=f.count});
+      const man=v=>fmtMan(v),cnt=v=>Math.round(v).toLocaleString('ja-JP');
+      document.getElementById('g-kpis').innerHTML=kpiHtml([
+        ['インスタ売上',man(t('instaRev')),''],['インスタ申込数',cnt(t('instaApp')),'件'],
+        ['インスタ成約率',pctTxt(t('instaApp'),t('instaMeet')),''],['平均単価',yenPer(t('instaRev'),t('instaApp')),'']]);
+      // 担当ごとの一覧（売上の多い順。会社のインスタアカウントの行と合計も）
+      const line=(label,f,color)=>{const m=f('instaMeet'),v=f('instaView'),a=f('instaApp'),r=f('instaRev'),it=f('instaIntro')+f('instaRepeatIntro');
+        return `<tr><td>${color?`<i class="dot" style="background:${color}"></i>`:''}${esc(label)}</td><td><span class="v">${cnt(m)}</span></td><td><span class="v">${cnt(v)}</span></td><td><span class="v">${cnt(a)}</span></td>
+          <td><span class="v">${pctTxt(a,m)}</span></td><td><span class="v">${pctTxt(v,m)}</span></td><td><span class="v">${man(r)}</span></td><td><span class="v">${yenPer(r,a)}</span></td><td><span class="v">${cnt(it)}</span></td><td><span class="v">${fol[label]!=null?fol[label].toLocaleString('ja-JP'):'—'}</span></td></tr>`};
+      const order=names.slice().sort((a,b)=>g(b,'instaRev')-g(a,'instaRev')||g(b,'instaApp')-g(a,'instaApp'));
+      const tb=document.getElementById(addSection(main,'one'));
+      tb.innerHTML=`<section class="card sc"><div class="sc-head"><div><h3>${icon('all')}担当ごとの一覧</h3><p>売上の多い順。成約率＝申込数 ÷ 面談数、内覧率＝内覧数 ÷ 面談数、平均単価＝売上 ÷ 申込数。フォロワーは今の数字（期間は関係なし）</p></div></div>
+        <div class="tablewrap"><table class="ig"><thead><tr><th>担当</th><th>面談数</th><th>内覧数</th><th>申込数</th><th>成約率</th><th>内覧率</th><th>売上</th><th>平均単価</th><th>インスタ顧客の紹介</th><th>フォロワー</th></tr></thead><tbody>
+        ${order.map(n=>line(n,k=>g(n,k),colorsFor(n,0).fill).replace(esc(n)+'</td>',esc(short(n))+'</td>')).join('')}
+        ${line('インスタ',k=>g('インスタ',k),'')}
+        </tbody><tfoot>${line('合計',t,'').replace(/<tr>/,'<tr class="sum">')}</tfoot></table></div></section>`;
+      // 担当ごとの棒（売上・申込数・成約率）
+      const gr=addSection(main),it=f=>names.map(n=>({name:n,value:f(n)}));
+      scBarCard('インスタ売上（担当別）','インスタ元売上','rev',it(n=>g(n,'instaRev')),{grid:gr,yen:true,total:man(t('instaRev')),sumLabel:'インスタ行も入れた合計'});
+      scBarCard('インスタ申込数（担当別）','インスタ申込数','app',it(n=>g(n,'instaApp')),{grid:gr,total:cnt(t('instaApp'))+'件',sumLabel:'インスタ行も入れた合計'});
+      scBarCard('インスタ成約率（担当別）','インスタ申込数 ÷ インスタ面談数','follow',it(n=>g(n,'instaMeet')?g(n,'instaApp')/g(n,'instaMeet')*100:0),
+        {grid:gr,fmt:v=>(Math.round(v*10)/10).toFixed(1)+'%',total:pctTxt(t('instaApp'),t('instaMeet')),sumLabel:'全員'});
+      scBarCard('インスタ面談数（担当別）','インスタ面談数','intro',it(n=>g(n,'instaMeet')),{grid:gr,total:cnt(t('instaMeet'))+'件',sumLabel:'インスタ行も入れた合計'});
+      // 月ごとの棒（全員）
+      const months=[...new Set(SC.rows.map(r=>r[0]))].filter(ym=>ym>=from&&ym<=to&&ym<=SC.partial).sort();
+      if(months.length>1){
+        const id='ig-'+Math.random().toString(36).slice(2,7),sec=document.createElement('section');sec.className='card sc';
+        const mv=(ym,k)=>rows.reduce((a,n)=>{const r=SC.rows.find(x=>x[0]===ym&&x[1]===n);return a+(r?r[SC.keys.indexOf(k)+2]||0:0)},0);
+        const rev=months.map(ym=>mv(ym,'instaRev')),app=months.map(ym=>mv(ym,'instaApp'));
+        sec.innerHTML=`<div class="sc-head"><div><h3>${icon('rev')}月ごとのインスタ売上と申込数</h3><p>棒が売上、線が申込数（全員。インスタ行も入れた合計）</p></div></div>
+          <div class="canvas" style="height:260px"><canvas id="${id}" role="img" aria-label="月ごとのインスタ売上と申込数"></canvas></div>`;
+        document.getElementById(addSection(main,'one')).appendChild(sec);
+        const th=scTheme(),c1=isDark()?'#d58cf0':'#9c27b0',c2=isDark()?'#f0b4d0':'#e91e63';
+        scCharts.push(lazyChart(document.getElementById(id),{type:'bar',
+          data:{labels:months.map(ym=>ym.slice(2,4)+'/'+Number(ym.slice(5))+(ym===SC.partial?'（途中）':'')),datasets:[
+            {type:'bar',label:'売上',data:rev,backgroundColor:c1,borderRadius:3,maxBarThickness:30,yAxisID:'y'},
+            {type:'line',label:'申込数',data:app,borderColor:c2,backgroundColor:c2,pointRadius:3,tension:.25,yAxisID:'y1'}]},
+          options:{responsive:true,maintainAspectRatio:false,animation:{duration:300},
+            plugins:{legend:{display:true,labels:{color:th.fg,boxWidth:10,font:{size:11}}},tooltip:{mode:'index',backgroundColor:th.surf,titleColor:th.fg,bodyColor:th.fg,borderColor:th.grid,borderWidth:1,padding:10,cornerRadius:4,
+              callbacks:{label:c=>' '+c.dataset.label+'：'+(c.datasetIndex?cnt(c.raw)+'件':man(c.raw))}}},
+            scales:{x:{grid:{display:false},border:{display:false},ticks:{color:th.fg,font:{size:11}}},
+              y:{beginAtZero:true,grid:{color:th.grid,drawTicks:false},border:{display:false},ticks:{color:th.faint,maxTicksLimit:5,font:{size:11},callback:v=>man(v)}},
+              y1:{position:'right',beginAtZero:true,grid:{display:false},border:{display:false},ticks:{color:th.faint,maxTicksLimit:5,font:{size:11},precision:0}}}}}));
+      }
+      document.getElementById('g-foot').textContent='数字は「★紹介分析データ用（新）」のインスタの列（インスタ元売上・インスタ申込数・インスタ面談数・インスタ内覧数・インスタ顧客による紹介／リピート紹介）から。全員と合計は8名と「インスタ」の行（会社のインスタアカウント）を足したものです。フォロワーは「フォロワー」シートの今の数字。';
+    }},
   monthly:{eyebrow:'推移',title:'月別推移',period:false,who:false,
     lede:'期（4月〜3月）と担当を選ぶと、売上・申込件数・紹介数・縦掘り数・口コミを月ごとの縦棒で見られます。薄い棒は前の期の同じ月です。',
     render({main}){
@@ -2000,7 +2052,7 @@ function prefetchRest(){
 /* ================= ページの切り替え ================= */
 const STARTERS={person:async()=>{const [,nj]=await Promise.all([loadScoreData(),loadNenjiData(),loadPromo()]);buildSeries(nj);mountGen('person',GEN_PAGES.person)},
   funnel:startGen('funnel'),score:()=>startScore('score'),budget:startBudget,promo:startPromo,nenji:startNenji,
-  rate:startGen('rate'),intro:startGen('intro'),monthly:startGen('monthly'),sale:startGen('sale'),mgrowth:startGen('mgrowth'),cgrowth:startGen('cgrowth')};
+  rate:startGen('rate'),intro:startGen('intro'),insta:startGen('insta'),monthly:startGen('monthly'),sale:startGen('sale'),mgrowth:startGen('mgrowth'),cgrowth:startGen('cgrowth')};
 const NEEDS={nenji:[loadNenjiData],person:[loadScoreData,loadNenjiData,loadPromo],funnel:[loadScoreData,loadFunnel],promo:[loadScoreData,loadPromo]}; // ほかのページは成績のデータだけ
 async function goPage(key){
   if(!STARTERS[key])key=PAGES[0].key;
