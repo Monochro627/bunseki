@@ -205,7 +205,15 @@ details.ph.flash{animation:flash 1.2s ease-out}
 .paper table{border-collapse:collapse;width:100%}
 .paper td,.paper th{border:1px solid #444;padding:2.5px 5px;vertical-align:middle}
 .paper .hd td{padding:4px 6px;font-size:11px}
-.paper .hd td.k{background:#eee;width:15%;font-weight:700}
+.paper .hd td.k{background:#eee;width:13%;font-weight:700}
+.paper .hd td.big{font-size:18px;font-weight:800;padding:7px 9px;letter-spacing:.02em}
+.paper .hd td.mid{font-size:14px;font-weight:700;padding:6px 8px}
+.paper .dates{display:grid;grid-template-columns:repeat(5,1fr);border:1px solid #444;border-top:0}
+.paper .dates div{padding:4px 7px 5px;border-left:1px solid #444;display:flex;flex-direction:column;gap:2px;min-height:38px}
+.paper .dates div:first-child{border-left:0}
+.paper .dates span{font-size:9.5px;font-weight:700;color:#555}
+.paper .dates b{font-family:var(--f-num);font-size:14px;font-weight:700}
+.paper .dates b.jp{font-family:inherit}
 .paper .ck{width:20px;text-align:center;font-size:12px}
 .paper .dt{width:44px;text-align:center;font-family:var(--f-num);font-size:9.5px}
 .paper .ph{width:62px;text-align:center;font-weight:700;background:#f4f4f4;font-size:10px}
@@ -596,12 +604,17 @@ function renderPaper(autoPrint) {
     <div class="printwrap"><div class="paper">
       <h3>契約業務チェックシート${mode === "電子" ? "（電子契約）" : ""}</h3>
       <table class="hd">
-        <tr><td class="k">物件名</td><td>${esc(d["物件"])}</td><td class="k">重説予定日</td><td class="num">${md(d["重説予定日"])}</td></tr>
-        <tr><td class="k">氏名</td><td>${esc(d["お客様名"])} 様</td><td class="k">重説完了日</td><td class="num">${md(d["重説完了日"])}</td></tr>
-        <tr><td class="k">管理会社</td><td>${esc(d["管理会社"])}</td><td class="k">宅建士名</td><td>${esc(d["宅建士"])}</td></tr>
-        <tr><td class="k">TEL</td><td class="num">${esc(d["TEL"])}</td><td class="k">入居日</td><td class="num">${md(d["入居日"])}</td></tr>
-        <tr><td class="k">契約方法</td><td>${modeName}</td><td class="k">鍵渡し予定日時</td><td class="num">${d["鍵渡し予定日時"] ? mdhm(d["鍵渡し予定日時"]) : ""}</td></tr>
+        <tr><td class="k">物件名</td><td class="big" colspan="3">${esc(d["物件"])}</td></tr>
+        <tr><td class="k">氏名</td><td class="mid">${esc(d["お客様名"])} 様</td><td class="k">管理会社</td><td class="mid">${esc(d["管理会社"])}</td></tr>
+        <tr><td class="k">TEL</td><td class="num">${esc(d["TEL"])}</td><td class="k">契約方法</td><td><b>${modeName}</b></td></tr>
       </table>
+      <div class="dates">
+        <div><span>重説予定日</span><b>${md(d["重説予定日"])}</b></div>
+        <div><span>重説完了日</span><b>${md(d["重説完了日"])}</b></div>
+        <div><span>宅建士名</span><b class="jp">${esc(d["宅建士"])}</b></div>
+        <div><span>入居日</span><b>${md(d["入居日"])}</b></div>
+        <div><span>鍵渡し予定日時</span><b>${d["鍵渡し予定日時"] ? mdhm(d["鍵渡し予定日時"]) : ""}</b></div>
+      </div>
       <table style="margin-top:8px"><thead><tr><th class="ck"></th><th>項目</th><th class="dt">実施日</th><th class="ph">段階</th></tr></thead><tbody>${rows}</tbody></table>
       <div class="foot"><span>☑ 完了　✕ 該当なし</span><span>担当 ${esc(d["担当"])}　出力日 ${md(nowIso())}　株式会社Monochro</span></div>
     </div></div>`;

@@ -684,8 +684,11 @@ function canEdit_(cal) {
 }
 
 // ===== 48時間アラート =====
+// 48時間動きのない案件のメール。いったん止めている（true にすると毎朝8時に再開）
+const STALL_ALERTS_ON = false;
 function sendStallAlerts() {
-  refreshJusetsu_();
+  refreshJusetsu_(); // 重説集計シートの更新は毎朝つづける
+  if (!STALL_ALERTS_ON) return;
   const items = readAll_('items');
   const checks = groupBy_(readAll_('checks'), '案件ID');
   const mails = readAll_('members').reduce((o, m) => { o[m['売上表の名前']] = m['メール']; return o; }, {});
