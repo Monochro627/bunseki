@@ -1093,6 +1093,10 @@ function renderScore(){
   if(SCP.share)scShareCard(pick('rev'),scLead);
   SCP.cards.forEach(c=>{const items=pick(c.k,!c.lead);
     scBarCard(c.t,c.d,c.ico,items,{yen:c.yen,total:c.yen?fmtMan(items.reduce((a,x)=>a+x.value,0)):fmtCnt(items.reduce((a,x)=>a+x.value,0)),badge:c.lead&&!scLead?'小嶋・諸本を除く':''})});
+  // 平均単価（賃貸と売買に分ける）。並べる人は上の売上と同じ（小嶋・諸本のチェックに合わせる）
+  {const who=pick('rev').map(x=>x.name),tt=k=>who.reduce((a,n)=>a+((S[n]||{})[k]||0),0),badge=SCP.leads&&!scLead?'小嶋・諸本を除く':'';
+    scBarCard('賃貸の平均単価','（売上 − 売買元売上）÷（総申込数 − 売買成約数）','selfRev',who.map(n=>({name:n,value:rentAvg(S[n]||{})})),{yen:true,fmtL:fmtYen,total:rentYen(tt),sumLabel:'平均',badge});
+    scBarCard('売買の平均単価','売買元売上 ÷ 売買成約数（売買のない人は0）','rev',who.map(n=>({name:n,value:saleAvgOf(S[n]||{})})),{yen:true,fmtL:fmtYen,total:saleYen(tt),sumLabel:'平均',badge});}
   // フォロワー数は期間に関係なく、シートの今の数字
   if(SCP.followers){
     const fl=SC.followers.map(f=>({name:f.name,value:f.count,color:COLOR_OF[f.name]?null:(isDark()?'#5b6270':'#c9ced6'),note:f.updated?'更新 '+f.updated:''}));
@@ -1466,17 +1470,22 @@ function fiscalList(){
   for(let n=1;n<=cur;n++)out.push({n,l:n+'期',from:n===1?'2022/01':(2021+n)+'/04',to:(2022+n)+'/03',partial:n===cur});
   return out;
 }
+// 平均単価は賃貸と売買に分ける。賃貸＝（売上 − 売買元売上）÷（総申込数 − 売買成約数）、売買＝売買元売上 ÷ 売買成約数
+const rentAvg=x=>{const c=(x.app||0)-(x.saleCnt||0);return c>0?Math.max(0,((x.rev||0)-(x.saleRev||0))/c):0};
+const saleAvgOf=x=>x.saleCnt?(x.saleRev||0)/x.saleCnt:0;
+const rentYen=t=>yenPer(t('rev')-t('saleRev'),t('app')-t('saleCnt')),saleYen=t=>yenPer(t('saleRev'),t('saleCnt'));
 // 成約率＆平均単価・紹介分析・担当者シートで使うカード（t(k) は選んだ人・期間の合計）
 const flowHtml=(steps)=>`<div class="flow">${steps.map((s,i)=>(i?`<div class="farrow"><b>${pctTxt(s[1],steps[i-1][1])}</b>→</div>`:'')+`<div class="fstep"><span>${esc(s[0])}</span><b>${Math.round(s[1]).toLocaleString('ja-JP')}</b></div>`).join('')}</div>`;
 const rateCardsHtml=t=>`<section class="card sc"><div class="sc-head"><div><h3>${icon('intro')}紹介案件の成約率</h3><p>総紹介数から自己集客の申込まで。矢印の％はひとつ前から進んだ割合</p></div></div>
           ${flowHtml([['総紹介数',t('intro')],['初回電話or面談',t('callMeet')],['内覧数',t('viewIntro')],['自己集客申込数',t('selfApp')]])}
           <div class="tiles"><div class="tile"><span>紹介成約率</span><b>${pctTxt(t('selfApp'),t('intro'))}</b><small>自己集客申込数 ÷ 総紹介数</small></div>
-          <div class="tile"><span>自己集客平均単価</span><b>${yenPer(t('selfRev'),t('selfApp'))}</b><small>自己集客元売上 ÷ 自己集客申込数</small></div></div></section>
+          <div class="tile"><span>賃貸の平均単価</span><b>${rentYen(t)}</b><small>（売上 − 売買元売上）÷（総申込数 − 売買成約数）</small></div>
+          <div class="tile"><span>売買の平均単価</span><b>${saleYen(t)}</b><small>売買元売上 ÷ 売買成約数</small></div></div></section>
         <section class="card sc"><div class="sc-head"><div><h3>${icon('follow')}インスタ案件の成約率</h3><p>インスタの面談から申込まで</p></div></div>
           ${flowHtml([['インスタ面談数',t('instaMeet')],['インスタ内覧数',t('instaView')],['インスタ申込数',t('instaApp')]])}
           <div class="tiles"><div class="tile"><span>インスタ成約率</span><b>${pctTxt(t('instaApp'),t('instaMeet'))}</b><small>インスタ申込数 ÷ インスタ面談数</small></div>
           <div class="tile"><span>インスタ平均単価</span><b>${yenPer(t('instaRev'),t('instaApp'))}</b><small>インスタ元売上 ÷ インスタ申込数</small></div>
-          <div class="tile"><span>賃貸総合顧客単価</span><b>${yenPer(t('rentRev'),t('rentApp'))}</b><small>賃貸元売上 ÷ 賃貸のみ申込数</small></div></div></section>`;
+</div></section>`;
 // 全案件縦掘り率・新規アポの紹介率・紹介1件に必要な新規アポは、月をまたいで数がずれ短い期間だと100%を超えるので、いつも累積（tc）で出す
 // 縦掘りの目標（担当を選んだとき）。tateMode：'nenji'＝入社年次の12か月、'ki'＝期（4月〜3月）
 let tateMode=store.get('tate.mode')||'nenji',tateEdit=false;
@@ -1898,16 +1907,16 @@ const GEN_PAGES={
     render({from,to,who,names,main}){
       const S=scSum(from,to),sel=who==='all'?names.concat(['インスタ']):[who],t=k=>sumOf(S,sel,k);
       document.getElementById('g-kpis').innerHTML=kpiHtml([
-        ['紹介成約率',pctTxt(t('selfApp'),t('intro')),''],['自己集客平均単価',yenPer(t('selfRev'),t('selfApp')),''],
-        ['インスタ成約率',pctTxt(t('instaApp'),t('instaMeet')),''],['賃貸総合顧客単価',yenPer(t('rentRev'),t('rentApp')),'']]);
+        ['紹介成約率',pctTxt(t('selfApp'),t('intro')),''],['賃貸の平均単価',rentYen(t),''],
+        ['インスタ成約率',pctTxt(t('instaApp'),t('instaMeet')),''],['売買の平均単価',saleYen(t),'']]);
       const row=document.getElementById(addSection(main,'row2'));
       row.innerHTML=rateCardsHtml(t);
       const g=addSection(main),it=(f)=>names.map(n=>({name:n,value:f(S[n]||{})}));
       const pf=v=>(Math.round(v*10)/10).toFixed(1)+'%',hi=who==='all'?'':who;
       scBarCard('紹介成約率（担当別）','自己集客申込数 ÷ 総紹介数','intro',it(x=>x.intro?x.selfApp/x.intro*100:0),{grid:g,fmt:pf,total:pctTxt(t('selfApp'),t('intro')),sumLabel:who==='all'?'全員':short(who),hi});
-      scBarCard('自己集客平均単価（担当別）','自己集客元売上 ÷ 自己集客申込数','selfRev',it(x=>x.selfApp?x.selfRev/x.selfApp:0),{grid:g,yen:true,fmtL:fmtYen,total:yenPer(t('selfRev'),t('selfApp')),sumLabel:who==='all'?'全員':short(who),hi});
+      scBarCard('賃貸の平均単価（担当別）','（売上 − 売買元売上）÷（総申込数 − 売買成約数）','selfRev',it(rentAvg),{grid:g,yen:true,fmtL:fmtYen,total:rentYen(t),sumLabel:who==='all'?'全員':short(who),hi});
       scBarCard('インスタ成約率（担当別）','インスタ申込数 ÷ インスタ面談数','follow',it(x=>x.instaMeet?x.instaApp/x.instaMeet*100:0),{grid:g,fmt:pf,total:pctTxt(t('instaApp'),t('instaMeet')),sumLabel:who==='all'?'全員':short(who),hi});
-      scBarCard('賃貸総合顧客単価（担当別）','賃貸元売上 ÷ 賃貸のみ申込数','rev',it(x=>x.rentApp?x.rentRev/x.rentApp:0),{grid:g,yen:true,fmtL:fmtYen,total:yenPer(t('rentRev'),t('rentApp')),sumLabel:who==='all'?'全員':short(who),hi});
+      scBarCard('売買の平均単価（担当別）','売買元売上 ÷ 売買成約数（売買のない人は0）','rev',it(saleAvgOf),{grid:g,yen:true,fmtL:fmtYen,total:saleYen(t),sumLabel:who==='all'?'全員':short(who),hi});
       document.getElementById('g-foot').textContent='数字は「★紹介分析データ用（新）」から。全員は8名とインスタ等の行の合計です（Looker Studio と同じ）。下の担当別は8名だけ。自己集客申込数には紹介以外から来た人も入るので、内覧→申込が100%を超えることがあります。';
     }},
   intro:{eyebrow:'紹介',title:'紹介分析',period:true,who:true,def:'all',
