@@ -757,7 +757,8 @@ function sendMonthlyJusetsu() {
     .sort((a, b) => a['重説完了日'] - b['重説完了日'])
     .map(d => '　・' + Utilities.formatDate(d['重説完了日'], CONFIG.TZ, 'M/d') + '　' + d['お客様名'] + ' 様（担当 ' + d['担当'] + '）').join('\n'));
   MailApp.sendEmail({
-    to: CONFIG.ADMIN_EMAIL || Session.getEffectiveUser().getEmail(),
+    // いつもの送り先（ADMIN_EMAIL。空ならアプリの持ち主）に加えて、設定.gs の JUSETSU_MAIL_CC の人にも送る
+    to: [CONFIG.ADMIN_EMAIL || Session.getEffectiveUser().getEmail()].concat(CONFIG.JUSETSU_MAIL_CC || []).join(','),
     subject: '【重説集計】' + (prev.getMonth() + 1) + '月の重説は' + total + '件でした',
     body: (prev.getMonth() + 1) + '月の重説（重説完了日で集計）\n\n' + (lines.join('\n\n') || '重説完了の記録はありませんでした。')
       + '\n\n契約進捗DBの「重説集計」シートで、過去の月も見られます。',

@@ -23,5 +23,7 @@ const CONFIG = {
   STALL_HOURS: 48,
   // 重説の月次集計メールと、メール未登録の担当者のアラートの送り先。複数はカンマ区切り（空ならアプリの持ち主）
   ADMIN_EMAIL: '',
+  // 重説集計のメール（毎月1日）を、ADMIN_EMAIL に加えて送る人のメール（例：['a@example.com']）
+  JUSETSU_MAIL_CC: [],
   TZ: 'Asia/Tokyo',
 };
