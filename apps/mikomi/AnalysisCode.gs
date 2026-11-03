@@ -96,13 +96,15 @@ const SCORE_HEADERS = {
   custIntro: '既存顧客による紹介', custRepeat: '既存顧客のリピート', kobe: '神戸アカによる集客',
   instaIntro: 'インスタ顧客による紹介', instaRepeatIntro: 'インスタ顧客によるリピート紹介',
   kizonApo: '既存アポ', shinkiApo: '新規アポ', newIntro: '新規紹介合計', instaTate: 'インスタの縦掘り案件',
+  // 神戸アカ（佐光さんの担当者シートに、インスタと同じ形で出す）
+  kobeMeet: '神戸アカ面談数', kobeView: '神戸アカ内覧数', kobeApp: '神戸アカ申込数', kobeRev: '神戸アカ元売上',
 };
 const TATE_TARGET = 1000; // 紹介分析の縦掘り数の目標（全員を選んだとき。Looker の「縦掘り数累積」のゲージと同じ）
 // 担当を選んだときの縦掘りの目標は「縦掘り目標」シート（顧客管理スプレッドシート。アプリが作って書く。画面の入力欄から保存）
 //   A=担当者、B=種類（年次／期）、C=番号（年次なら1,2…年目、期なら5期目の5）、D=目標件数、E=更新者、F=更新日時
 //   年次：入社月（NENJI_STAFF の start）から12か月ずつ。今の年次の12か月の縦掘り数をその年次の目標と比べる
 const TATE_GOAL_SHEET = '縦掘り目標';
-const SCORE_CACHE_KEY = 'score_v10'; // getScoreData のキャッシュ（中身を変えたら番号を上げる）
+const SCORE_CACHE_KEY = 'score_v11'; // getScoreData のキャッシュ（中身を変えたら番号を上げる）
 const TATE_GOAL_HEAD = ['担当者', '種類', '番号', '目標件数', '更新者', '更新日時'];
 // 売買の今期の目標件数は、売上管理表「5期目　年間売上表」B列の「売買総合計【30件】」から読む（読めなければこの数）
 const SALE_TARGET_DEFAULT = 30;

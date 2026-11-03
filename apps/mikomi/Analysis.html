@@ -631,7 +631,7 @@ document.getElementById('reload').onclick = () => location.reload();
 
 /* ---------- 前回の数字をすぐ出す ----------
    読んだ数字をこの端末に覚えておき、次に開いたときはそれをすぐ表示。裏で最新を読んで、変わっていたら描き直す */
-const CACHE_VER = 'v1';
+const CACHE_VER = 'v2'; // 成績のデータの中身（列）を変えたら上げる（前の形のまま画面に出さないように）
 function fastApi(fn, onFresh) {
   const key = 'cache.' + CACHE_VER + '.' + fn;
   let old = null;
@@ -1476,7 +1476,8 @@ const saleAvgOf=x=>x.saleCnt?(x.saleRev||0)/x.saleCnt:0;
 const rentYen=t=>yenPer(t('rev')-t('saleRev'),t('app')-t('saleCnt')),saleYen=t=>yenPer(t('saleRev'),t('saleCnt'));
 // 成約率＆平均単価・紹介分析・担当者シートで使うカード（t(k) は選んだ人・期間の合計）
 const flowHtml=(steps)=>`<div class="flow">${steps.map((s,i)=>(i?`<div class="farrow"><b>${pctTxt(s[1],steps[i-1][1])}</b>→</div>`:'')+`<div class="fstep"><span>${esc(s[0])}</span><b>${Math.round(s[1]).toLocaleString('ja-JP')}</b></div>`).join('')}</div>`;
-const rateCardsHtml=t=>`<section class="card sc"><div class="sc-head"><div><h3>${icon('intro')}紹介案件の成約率</h3><p>総紹介数から自己集客の申込まで。矢印の％はひとつ前から進んだ割合</p></div></div>
+// o.kobe：神戸アカのカードも出す（担当者シート・担当を選んだとき。神戸アカの数字がある人だけ出る＝佐光さん）
+const rateCardsHtml=(t,o)=>`<section class="card sc"><div class="sc-head"><div><h3>${icon('intro')}紹介案件の成約率</h3><p>総紹介数から自己集客の申込まで。矢印の％はひとつ前から進んだ割合</p></div></div>
           ${flowHtml([['総紹介数',t('intro')],['初回電話or面談',t('callMeet')],['内覧数',t('viewIntro')],['自己集客申込数',t('selfApp')]])}
           <div class="tiles"><div class="tile"><span>紹介成約率</span><b>${pctTxt(t('selfApp'),t('intro'))}</b><small>自己集客申込数 ÷ 総紹介数</small></div>
           <div class="tile"><span>賃貸の平均単価</span><b>${rentYen(t)}</b><small>（売上 − 売買元売上）÷（総申込数 − 売買成約数）</small></div>
@@ -1485,7 +1486,16 @@ const rateCardsHtml=t=>`<section class="card sc"><div class="sc-head"><div><h3>$
           ${flowHtml([['インスタ面談数',t('instaMeet')],['インスタ内覧数',t('instaView')],['インスタ申込数',t('instaApp')]])}
           <div class="tiles"><div class="tile"><span>インスタ成約率</span><b>${pctTxt(t('instaApp'),t('instaMeet'))}</b><small>インスタ申込数 ÷ インスタ面談数</small></div>
           <div class="tile"><span>インスタ平均単価</span><b>${yenPer(t('instaRev'),t('instaApp'))}</b><small>インスタ元売上 ÷ インスタ申込数</small></div>
-</div></section>`;
+</div></section>
+        ${o&&o.kobe&&(t('kobeMeet')||t('kobeApp'))?`<section class="card sc"><div class="sc-head"><div><h3>${icon('follow')}神戸アカ案件の成約率</h3><p>神戸アカの面談から申込まで</p></div></div>
+          ${flowHtml([['神戸アカ面談数',t('kobeMeet')],['神戸アカ内覧数',t('kobeView')],['神戸アカ申込数',t('kobeApp')]])}
+          <div class="tiles"><div class="tile"><span>神戸アカ成約率</span><b>${pctTxt(t('kobeApp'),t('kobeMeet'))}</b><small>神戸アカ申込数 ÷ 神戸アカ面談数</small></div>
+          <div class="tile"><span>神戸アカ平均単価</span><b>${yenPer(t('kobeRev'),t('kobeApp'))}</b><small>神戸アカ元売上 ÷ 神戸アカ申込数</small></div></div></section>`:''}
+        <section class="card sc"><div class="sc-head"><div><h3>${icon('all')}紹介＋インスタの合計</h3><p>自己集客（紹介）とインスタを足した数字</p></div></div>
+          ${flowHtml([['案件数',t('intro')+t('instaMeet')],['内覧数',t('viewIntro')+t('instaView')],['申込数',t('selfApp')+t('instaApp')]])}
+          <div class="tiles"><div class="tile"><span>合計の成約率</span><b>${pctTxt(t('selfApp')+t('instaApp'),t('intro')+t('instaMeet'))}</b><small>（自己集客申込数＋インスタ申込数）÷（総紹介数＋インスタ面談数）</small></div>
+          <div class="tile"><span>合計の売上</span><b>${fmtMan(t('selfRev')+t('instaRev'))}</b><small>自己集客元売上＋インスタ元売上</small></div>
+          <div class="tile"><span>合計の平均単価</span><b>${yenPer(t('selfRev')+t('instaRev'),t('selfApp')+t('instaApp'))}</b><small>合計の売上 ÷ 合計の申込数</small></div></div></section>`;
 // 全案件縦掘り率・新規アポの紹介率・紹介1件に必要な新規アポは、月をまたいで数がずれ短い期間だと100%を超えるので、いつも累積（tc）で出す
 // 縦掘りの目標（担当を選んだとき）。tateMode：'nenji'＝入社年次の12か月、'ki'＝期（4月〜3月）
 let tateMode=store.get('tate.mode')||'nenji',tateEdit=false;
@@ -1849,7 +1859,7 @@ const GEN_PAGES={
 
 
       head('成約率＆平均単価・紹介',pl+'の数字');
-      document.getElementById(addSection(main,'row2')).innerHTML=rateCardsHtml(t);
+      document.getElementById(addSection(main,'row2')).innerHTML=rateCardsHtml(t,{kobe:true});
       const mixEl=document.getElementById(addSection(main,'one'));mixEl.innerHTML=introMixHtml(t,short(n)+'さん');drawIntroMix(mixEl,t);
 
 
@@ -1910,7 +1920,7 @@ const GEN_PAGES={
         ['紹介成約率',pctTxt(t('selfApp'),t('intro')),''],['賃貸の平均単価',rentYen(t),''],
         ['インスタ成約率',pctTxt(t('instaApp'),t('instaMeet')),''],['売買の平均単価',saleYen(t),'']]);
       const row=document.getElementById(addSection(main,'row2'));
-      row.innerHTML=rateCardsHtml(t);
+      row.innerHTML=rateCardsHtml(t,{kobe:who!=='all'});
       const g=addSection(main),it=(f)=>names.map(n=>({name:n,value:f(S[n]||{})}));
       const pf=v=>(Math.round(v*10)/10).toFixed(1)+'%',hi=who==='all'?'':who;
       scBarCard('紹介成約率（担当別）','自己集客申込数 ÷ 総紹介数','intro',it(x=>x.intro?x.selfApp/x.intro*100:0),{grid:g,fmt:pf,total:pctTxt(t('selfApp'),t('intro')),sumLabel:who==='all'?'全員':short(who),hi});
