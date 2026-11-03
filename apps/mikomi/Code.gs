@@ -419,7 +419,7 @@ function recordStage_(row, name, stageKey, undo) {
 
     // B列：記録が残っている一番先の段階に合わせる
     const reached = STAGES.filter((st) => (st.key === 'viewing' ? count > 0 || val.viewing : st.key === 'meeting' ? mcount > 0 || val.meeting : val[st.col]));
-    const status = stageStatus_(reached[reached.length - 1], count, mcount) || '';
+    const status = fitStatus_(sheet, map, actualRow, stageStatus_(reached[reached.length - 1], count, mcount) || '');
     put('status', status);
     const stamp = updateStamp_();
     put('updated', stamp);
@@ -832,7 +832,7 @@ function reviveCustomer(row, name) {
   const count = parseInt(r[map.viewCount], 10) || 0;
   const mcount = meetCountOf_(r[map.meetCount], r[map.meeting]);
   const reached = STAGES.filter((st) => st.key !== 'apply' && (st.key === 'viewing' ? count > 0 || r[map.viewing] : st.key === 'meeting' ? mcount > 0 || r[map.meeting] : r[map[st.col]]));
-  const status = stageStatus_(reached[reached.length - 1], count, mcount) || '追客';
+  const status = fitStatus_(sheet, map, actualRow, stageStatus_(reached[reached.length - 1], count, mcount) || '追客');
   const line = '失客から戻す（' + Utilities.formatDate(new Date(), 'Asia/Tokyo', 'MM/dd') + '）';
   const memo = r[map.memo];
   const res = writeFields_(actualRow, name, { status: status, memo: memo ? memo + '\n' + line : line });
@@ -1011,6 +1011,23 @@ function eventName_(no, name) {
 /** 面談の回数。面談回数の列ができる前に面談した人（面談日だけ入っている）は1回 */
 function meetCountOf_(text, meetingDate) {
   return parseInt(text, 10) || (meetingDate ? 1 : 0);
+}
+
+/**
+ * B列のプルダウン（入力規則）に無い値だと書き込めないので、「内覧済み（2回）」が無ければ「内覧済み」にする。
+ * 回数は内覧回数・面談回数の列に残っている。プルダウンに「（N回）」を足せば、そのまま入る
+ */
+function fitStatus_(sheet, map, row, status) {
+  try {
+    const rule = sheet.getRange(row, map.status + 1).getDataValidation();
+    if (!rule || rule.getCriteriaType() !== SpreadsheetApp.DataValidationCriteria.VALUE_IN_LIST) return status;
+    const list = (rule.getCriteriaValues()[0] || []).map((v) => String(v).trim());
+    if (!status || list.indexOf(status) >= 0) return status;
+    const base = status.replace(/（\d+回）$/, '');
+    return list.indexOf(base) >= 0 ? base : status;
+  } catch (e) {
+    return status;
+  }
 }
 
 /** B列に入れる段階の名前。内覧は「内覧済み（N回）」、面談は2回目から「カウンセリング面談済み（2回）」 */
