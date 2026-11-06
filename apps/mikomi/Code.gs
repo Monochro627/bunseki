@@ -535,7 +535,9 @@ function renameCustomer(row, name, newName, kana) {
     try {
       const [calId, eventId] = ref.split('|');
       const ev = CalendarApp.getCalendarById(calId).getEventById(eventId);
-      if (ev) ev.setTitle(ev.getTitle().replace(/^(【[^】]*】(?:M\d{4,} )?).*$/, '$1' + calendarName_(full)));
+      if (!ev) return;
+      const t = ev.getTitle(), no = (t.match(/M\d{4,}/) || [''])[0];
+      ev.setTitle(t.indexOf(MEET_TITLE) === 0 ? meetTitle_(no, full) : t.replace(/^(【[^】]*】(?:M\d{4,} )?).*$/, '$1' + calendarName_(full)));
     } catch (e) { /* 消された予定は何もしない */ }
   });
   // 契約進捗の案件のお客様名も合わせる（売上表につなぐときに名前で探すため）
@@ -1003,6 +1005,17 @@ function customerNoOf_(sheet, map, row, r) {
   return sheet.getRange(row, map.customerNo + 1).getDisplayValue();
 }
 
+// 面談（Meet）の予定の件名：「【オンライン面談】　田坂様　M3188」。担当者が手でこの形の予定を入れても、顧客No で見込みボードにつながる
+const MEET_TITLE = '【オンライン面談】';
+function meetTitle_(no, name) {
+  return MEET_TITLE + '　' + honorName_(name) + (no ? '　' + no : '');
+}
+/** 「谷元さんご紹介　田坂様（タニモトサン）」→「田坂様」。フリガナを外して最後の言葉に「様」を付ける */
+function honorName_(name) {
+  const n = calendarName_(name), seg = n.split(/[\s　]+/).filter(String).pop() || n;
+  return /(様|さま|さん)$/.test(seg) ? seg.replace(/(さま|さん)$/, '様') : seg + '様';
+}
+
 /** カレンダーの件名に使う「M0012 山田太郎」 */
 function eventName_(no, name) {
   return (no ? no + ' ' : '') + calendarName_(name);
@@ -1044,7 +1057,7 @@ function stageStatus_(top, viewCount, meetCount) {
  */
 function createPlanEvent_(owner, stageKey, name, no, start, end, staffRaw) {
   const ps = PLAN_STAGES[stageKey];
-  const title = ps.title + eventName_(no, name);
+  const title = stageKey === 'meeting' ? meetTitle_(no, name) : ps.title + eventName_(no, name);
   const note = '顧客：' + name + (no ? '（' + no + '）' : '') + '\n担当：' + staffRaw;
   if (stageKey !== 'meeting') return createCalendarEvent_(owner, title, start, end, note);
   let ev;
@@ -1159,6 +1172,7 @@ function setupMeet() {
  * 見つかったら議事録ログに「Meet議事録」として残し、Claude で要点メモを作る。3日たっても無ければ「議事録なし」にする
  */
 function collectMeetNotes() {
+  try { linkCalendarMeetings_(); } catch (e) { /* つなげなくても、すでにある分の取り込みは続ける */ }
   const sheet = getMeetLogSheet_();
   const last = sheet.getLastRow();
   if (last < 2) return;
@@ -1181,6 +1195,51 @@ function collectMeetNotes() {
     saved.forEach((d) => { known[d.id] = true; });
     if (saved.length) sheet.getRange(i + 2, col['状態'] + 1, 1, 2).setValues([['取込済', saved.map((d) => d.url).join('\n')]]);
   }
+}
+
+/**
+ * 担当者のカレンダーに手で入れた面談の予定（件名に「面談」と顧客No「M3188」があるもの）を探して、面談ログに足す。
+ * これで議事録の取り込み（collectMeetNotes）の対象になる。先の予定で、見込みボードに面談の予定がまだ無ければ、
+ * その顧客の面談予定・Meet のリンクにも入れる（ボードから入れた予定はもう面談ログにあるので何もしない）
+ */
+function linkCalendarMeetings_() {
+  const logSheet = getMeetLogSheet_();
+  const last = logSheet.getLastRow();
+  const known = {};
+  if (last >= 2) logSheet.getRange(2, 1, last - 1, MEET_LOG_HEAD.length).getValues().forEach((r) => {
+    if (r[MEET_LOG_COL['予定ID']]) known[r[MEET_LOG_COL['予定ID']]] = true;
+    if (r[MEET_LOG_COL['予定']]) known[String(r[MEET_LOG_COL['予定']]).split('|')[1]] = true;
+  });
+  const cals = [];
+  STAFF.forEach((s) => { [s.calendar, s.email].forEach((c) => { if (c && cals.indexOf(c) < 0) cals.push(c); }); });
+  const now = Date.now(), timeMin = new Date(now - 3 * 864e5).toISOString(), timeMax = new Date(now + 60 * 864e5).toISOString();
+  let sheet = null, map = null, nos = null;
+  cals.forEach((calId) => {
+    let items = [];
+    try { items = Calendar.Events.list(calId, { timeMin: timeMin, timeMax: timeMax, singleEvents: true, q: '面談', maxResults: 250 }).items || []; }
+    catch (e) { return; } // 共有されていないカレンダーは飛ばす
+    items.forEach((ev) => {
+      const title = ev.summary || '', no = (title.match(/M\d{4,}/) || [''])[0];
+      if (!no || title.indexOf('面談') < 0 || known[ev.id] || known[ev.iCalUID] || !ev.start || !ev.start.dateTime) return;
+      if (!sheet) { sheet = getSheet_(); map = ensureAppColumns_(sheet); nos = sheet.getRange(2, map.customerNo + 1, sheet.getLastRow() - 1, 1).getDisplayValues(); }
+      const idx = nos.findIndex((x) => x[0] === no);
+      if (idx < 0) return;
+      const row = idx + 2, name = sheet.getRange(row, map.name + 1).getDisplayValue().trim();
+      const start = new Date(ev.start.dateTime), end = new Date(ev.end.dateTime), ref = calId + '|' + ev.iCalUID;
+      logMeet_(no, name, start, end, { ref: ref, calId: calId, eventId: ev.id, meet: ev.hangoutLink || '' });
+      known[ev.id] = known[ev.iCalUID] = true;
+      // 先の予定で、ボードに面談の予定が無ければ入れる（実施したら「実施した」でふつうに記録できる）
+      const refs = readPlanRefs_(sheet.getRange(row, map.planEvents + 1).getDisplayValue());
+      if (start.getTime() > now && !refs.meeting) {
+        refs.meeting = ref;
+        const text = Utilities.formatDate(start, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm') + '〜' + Utilities.formatDate(end, 'Asia/Tokyo', 'HH:mm');
+        sheet.getRange(row, map.planMeeting + 1).setValue(text);
+        sheet.getRange(row, map.planEvents + 1).setValue(JSON.stringify(refs));
+        if (ev.hangoutLink) sheet.getRange(row, map.meetLink + 1).setValue(ev.hangoutLink);
+        clearCache_();
+      }
+    });
+  });
 }
 
 function knownNoteFiles_() {
